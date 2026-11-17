@@ -1,0 +1,65 @@
+# Purpose: Keep generated files, developer-local settings and credentials out of AIDM source control.
+# Usage: git check-ignore -v .env .venv/lib/example.pyc; git status --ignored
+# Change Log: 2026-11-17 COSTA — AIDM-DES-026.1 initial Python/secret exclusions.
+
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.pytype/
+.hypothesis/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# Virtual environments / packaging
+.venv/
+venv/
+env/
+ENV/
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Developer configuration: examples explicitly permitted
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.local
+
+# Local keys / credentials (not an exhaustive defence; review diffs)
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+*.credentials.json
+secrets.json
+.secrets/
+
+# Runtime/test artefacts
+*.log
+logs/
+*.sqlite
+*.sqlite3
+*.db
+reports/
+.test-results/
+
+# Editor / operating system
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*~
