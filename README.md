@@ -35,6 +35,16 @@ python -m unittest discover -s aidm/test -p 'test_*.py' -v
 
 See [Configuration and secure settings](docs/CONFIGURATION.md) for Windows setup, supported keys, protected CI/deployment injection, error redaction, and integrating the loader with the future Meta Service (`AIDM-DES-013`). If any credential is exposed, revoke/rotate it immediately.
 
+## Automated tests
+
+Install the pinned development dependencies with `python -m pip install -r requirements-dev.txt`, then run the complete offline unit-test suite from the repository root:
+
+```powershell
+python -m aidm.test_runner
+```
+
+Every execution retains a uniquely identified human-readable summary, JUnit XML and line-coverage reports in the Git-ignored `reports/test-runs/` directory. Run `python -m aidm.test_runner --demonstrate-failure` to verify failure reporting deliberately; follow with a normal passing run. The standard command runs all colocated `test/` directories. See [Testing guide](docs/TESTING.md) for fixtures, results and CI handoff under AIDM-DES-027.1.
+
 ## Programme references
 
 - [Airtable](https://airtable.com/appG1E9VVbXBS7ZB0/pagkLWL3XMiwNHuEl/edit?utm_source=chatgpt.com) is authoritative for Stories, ownership, scope, Test Results and Release Notes.
