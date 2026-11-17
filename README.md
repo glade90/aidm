@@ -1,4 +1,4 @@
-# AIDM — AI Dungeon Master
+# AI Dungeon Master
 
 ![Adventuring party confronting stirges in a purple-lit cavern](assets/images/expedition_13_B1_partyFacesStirgesInThePurpleCorridor.png)
 
