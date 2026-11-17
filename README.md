@@ -1,6 +1,8 @@
-# AIDM — AI Dungeon Master
+# AI Dungeon Master
 
-AIDM is **The Golden Braid** personal AI Dungeon Master project. The planned application combines a single player-facing conversational LLM Dungeon Master with Python orchestrators and authoritative deterministic services. It targets **1983 Mentzer Basic D&D** and explicit approved house rules, without inventing additional game mechanics.
+![Adventuring party confronting stirges in a purple-lit cavern](assets/images/expedition_13_B1_partyFacesStirgesInThePurpleCorridor.png)
+
+AIDM is the AI Dungeon Master project part of the **The Golden Braid**, Eric Kasper's personal journey through Agentic Engineering. The planned application combines a single player-facing conversational LLM Dungeon Master with Python orchestrators and authoritative deterministic services. It targets **1983 Mentzer Basic D&D** and explicit approved house rules, without inventing additional game mechanics.
 
 The architectural direction includes a persistent runtime, browser interface, conversational DM, and orchestrators for adventure, expedition, character creation, geometry, rules, bookkeeping, encounters, combat, and cartography. Rules, dice, geometry and game-state changes are validated by tools and services—not made authoritative by LLM narration. Framework selection remains open.
 
@@ -23,7 +25,7 @@ Never commit passwords, API keys, `.env` files, private keys, or confidential or
 
 ## Programme references
 
-- Airtable is authoritative for Stories, ownership, scope, Test Results and Release Notes.
+- [Airtable](https://airtable.com/appG1E9VVbXBS7ZB0/pagkLWL3XMiwNHuEl/edit?utm_source=chatgpt.com) is authoritative for Stories, ownership, scope, Test Results and Release Notes.
 - OneNote: *Courses → Golden Braid → Engineering Standards*, particularly §4 (GitHub Repository and Commit Strategy).
 - Architecture: *Courses → Golden Braid → AIDM - Architecture & Execution*, version 0.3 (12 November 2026), a planning rebaseline, not approved technical design.
 - Sprint 1 transition: *Sprint Plan - 1.1 Transition*, baseline v1.2 (17 November 2026).
