@@ -23,6 +23,18 @@ Use `type(scope): description` (e.g. `test(repo): AIDM-DES-028.1 add pytest smok
 
 Never commit passwords, API keys, `.env` files, private keys, or confidential or restricted content. A future committed `.env.example` may document placeholder names, but never working credentials. The B1 module, rulebook material and other potentially copyrighted content must not be redistributed without permission. See `.gitignore` for local artefact exclusions.
 
+## Local configuration
+
+AIDM uses a single, offline Python settings loader: `from aidm.config import load_config`. For local development, copy `.env.example` to `.env` (optional); a setting already present in the process environment **always overrides** its `.env` value. Test, CI and production modes never read developer `.env` files. Do not commit keys or credentials.
+
+Run the isolated configuration tests from the repository root:
+
+```powershell
+python -m unittest discover -s aidm/test -p 'test_*.py' -v
+```
+
+See [Configuration and secure settings](docs/CONFIGURATION.md) for Windows setup, supported keys, protected CI/deployment injection, error redaction, and integrating the loader with the future Meta Service (`AIDM-DES-013`). If any credential is exposed, revoke/rotate it immediately.
+
 ## Programme references
 
 - [Airtable](https://airtable.com/appG1E9VVbXBS7ZB0/pagkLWL3XMiwNHuEl/edit?utm_source=chatgpt.com) is authoritative for Stories, ownership, scope, Test Results and Release Notes.
