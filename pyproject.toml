@@ -1,0 +1,15 @@
+# Purpose: Repository-wide pytest discovery and application-source coverage settings.
+# Usage: python -m aidm.test_runner
+# Change Log: 2026-11-17 COSTA — AIDM-DES-028.1 testing configuration.
+
+[tool.pytest.ini_options]
+testpaths = ["aidm"]
+python_files = ["test_*.py"]
+addopts = "-ra"
+
+[tool.coverage.run]
+source = ["aidm"]
+omit = ["*/test/*", "*/conftest.py", "*/test_runner.py"]
+
+[tool.coverage.report]
+show_missing = true

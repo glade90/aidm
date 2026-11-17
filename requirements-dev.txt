@@ -1,0 +1,6 @@
+# Purpose: Reproducible top-level dependencies for the AIDM fast unit-test suite.
+# Usage: python -m pip install -r requirements-dev.txt
+# Change Log: 2026-11-17 COSTA — AIDM-DES-028.1 test tool baseline.
+# Supported: Python 3.11+; transitive packages are resolved by pip at install time.
+pytest==9.0.2
+pytest-cov==7.0.0
