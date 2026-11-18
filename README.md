@@ -63,7 +63,7 @@ Use `@log.trace_calls` for opt-in method timing, `log.correlation("turn-42")` fo
 
 Run `python -m aidm --version` to view the declared application version, **full** Git source SHA, development/release classification, build ID, timestamp and dirty state. `python -m aidm` prints the same startup identity hook, but **does not launch a game** until the future Meta Service is implemented. The shared status contract is `from aidm.versioning import diagnostics`.
 
-**Governance:** Sprint 1's proposed application target is `v0.1.0`, **not yet explicitly approved** in the current Sprint Plan. Consequently, the authoritative root `VERSION` is deliberately **not seeded by AIDM-DES-030.1 yet**; the CLI reports `UNKNOWN` instead of inventing a declared version. After approval, the repo root must contain exactly one `VERSION` file with the approved `MAJOR.MINOR.PATCH` number (no leading `v`).
+**Governance:** The Project Owner approved Sprint 1's application target **`v0.1.0` on 18 November 2026**, now recorded in the Sprint Plan's approval addendum. The authoritative root [`VERSION`](VERSION) contains **`0.1.0`**, without a leading `v`. This is the planned version—not evidence of a published release. Developer checkouts identify as **development** builds regardless of that target.
 
 An optional build-time helper generates a Git-ignored manifest against the final clean Git commit so packaged code can identify itself without Git. Only the separate controlled release Story **AIDM-DES-030.2** may approve a release build, tag or GitHub Release. The logger's optional structured JSONL and standard test reports consume the same build identity. See [Version and Runtime Build Identity](docs/VERSIONING.md) for usage and remaining approval/integration tasks.
 
@@ -74,4 +74,4 @@ An optional build-time helper generates a Git-ignored manifest against the final
 - Architecture: *Courses → Golden Braid → AIDM - Architecture & Execution*, version 0.3 (12 November 2026), a planning rebaseline, not approved technical design.
 - Sprint 1 transition: *Sprint Plan - 1.1 Transition*, baseline v1.2 (17 November 2026).
 
-**Bootstrap story:** `AIDM-DES-026.1` (Technical Build). Root `VERSION` is approval-gated under `AIDM-DES-030.1`; CI and the application runtime remain separately scoped.
+**Bootstrap story:** `AIDM-DES-026.1` (Technical Build). The approved `VERSION` target is implemented under `AIDM-DES-030.1`; release publication, CI and the application runtime remain separately scoped.
