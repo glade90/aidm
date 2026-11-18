@@ -63,3 +63,6 @@ reports/
 Thumbs.db
 *.swp
 *~
+
+# Generated at package time from the final source commit; never committed.
+/aidm/_build_manifest.json
