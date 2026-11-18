@@ -45,6 +45,20 @@ python -m aidm.test_runner
 
 Every execution retains a uniquely identified human-readable summary, JUnit XML and line-coverage reports in the Git-ignored `reports/test-runs/` directory. Run `python -m aidm.test_runner --demonstrate-failure` to verify failure reporting deliberately; follow with a normal passing run. The standard command runs all colocated `test/` directories. See [Testing guide](docs/TESTING.md) for fixtures, results and CI handoff under AIDM-DES-027.1.
 
+## Technical logging
+
+The reusable AIDM logger is available as `from aidm.logging import log, configure_logging`. It writes to the Git-ignored, size-rotating `logs/technical.log` by default, with UTC ISO timestamps, emoji severity, originating class/function and messages. For example:
+
+```python
+from aidm.config import load_config
+from aidm.logging import configure_logging, log
+
+configure_logging(level=load_config().log_level)
+log.info("AIDM runtime configuration loaded")
+```
+
+Use `@log.trace_calls` for opt-in method timing, `log.correlation("turn-42")` for cross-event context, and `execute_logged(fake_cursor, "SELECT ... WHERE id=?", (51,))` for the first fake-driver SQL hook. Do **not** log credentials, raw exception messages, raw SQL bind values or hidden game-state data. See [Technical logging guide](docs/LOGGING.md) for rotation, filters, safe integration, tests and intentionally deferred real-database/LLM/replay work (AIDM-DES-035.1).
+
 ## Programme references
 
 - [Airtable](https://airtable.com/appG1E9VVbXBS7ZB0/pagkLWL3XMiwNHuEl/edit?utm_source=chatgpt.com) is authoritative for Stories, ownership, scope, Test Results and Release Notes.
