@@ -3,6 +3,7 @@
 Purpose: Run pytest with coverage and preserve distinct PASS/FAIL reports.
 Usage: python -m aidm.test_runner [--demonstrate-failure]
 Change Log: 2026-11-17 COSTA — AIDM-DES-028.1 initial reporter.
+            2026-11-18 COSTA — AIDM-DES-030.1 build identity in reports.
 """
 
 from __future__ import annotations
@@ -18,21 +19,29 @@ import time
 from uuid import uuid4
 from xml.etree import ElementTree
 
+from .versioning import BuildIdentity, get_build_identity
 
-def _git_revision(root: Path) -> tuple[str, bool | None]:
-    """Report Git revision and dirty status, or explicitly UNKNOWN."""
+
+def _stamp_junit(path: Path, identity: BuildIdentity) -> None:
+    """Add source/build provenance to each generated JUnit suite, including failures."""
+    if not path.is_file():
+        return
     try:
-        sha = subprocess.run(
-            ["git", "rev-parse", "--verify", "HEAD"], cwd=root,
-            capture_output=True, text=True, check=True, timeout=5,
-        ).stdout.strip()
-        dirty = bool(subprocess.run(
-            ["git", "status", "--porcelain"], cwd=root,
-            capture_output=True, text=True, check=True, timeout=5,
-        ).stdout.strip())
-        return sha, dirty
-    except (OSError, subprocess.SubprocessError):
-        return "UNKNOWN (not a Git checkout)", None
+        tree = ElementTree.parse(path)
+        root = tree.getroot()
+        suites = [root] if root.tag == "testsuite" else list(root.findall("testsuite"))
+        for suite in suites:
+            properties = suite.find("properties")
+            if properties is None:
+                properties = ElementTree.Element("properties")
+                suite.insert(0, properties)
+            for key, value in identity.as_dict().items():
+                ElementTree.SubElement(properties, "property", name="aidm." + key,
+                                       value="UNKNOWN" if value is None else str(value))
+        tree.write(path, encoding="utf-8", xml_declaration=True)
+    except (ValueError, OSError, ElementTree.ParseError):
+        # The existing report will still be preserved; summary/run.json remain.
+        return
 
 
 def _junit_counts(path: Path) -> dict[str, int | float | None]:
@@ -87,7 +96,8 @@ def main(argv: list[str] | None = None) -> int:
     run_id = started.strftime("%Y%m%dT%H%M%S%fZ") + "-" + uuid4().hex[:8]
     report_dir = root / "reports" / "test-runs" / run_id
     report_dir.mkdir(parents=True, exist_ok=False)
-    source_sha, dirty = _git_revision(root)
+    identity = get_build_identity(root)
+    source_sha, dirty = identity.source_sha, identity.dirty
     cmd = [
         sys.executable, "-m", "pytest", "aidm", "-q",
         "--junitxml", str(report_dir / "junit.xml"),
@@ -114,6 +124,7 @@ def main(argv: list[str] | None = None) -> int:
     elapsed = round(time.monotonic() - started_mono, 3)
     finished = datetime.now(timezone.utc)
     (report_dir / "pytest-output.txt").write_text(output, encoding="utf-8")
+    _stamp_junit(report_dir / "junit.xml", identity)
     counts = _junit_counts(report_dir / "junit.xml")
     coverage, coverage_problem = _coverage_percent(report_dir / "coverage.xml")
     manifest = {
@@ -122,6 +133,7 @@ def main(argv: list[str] | None = None) -> int:
         "finished_at": finished.isoformat(),
         "duration_seconds": elapsed,
         "source_revision": source_sha,
+        "build_identity": identity.as_dict(),
         "git_worktree_dirty": dirty,
         "python": sys.version.split()[0],
         "command": "python -m aidm.test_runner" + (" --demonstrate-failure" if args.demonstrate_failure else ""),
@@ -148,6 +160,8 @@ def main(argv: list[str] | None = None) -> int:
         f"Started UTC: {manifest['started_at']}\n"
         f"Duration: {elapsed:.3f}s\n"
         f"Source SHA: {source_sha}\n"
+        f"Version: {identity.version} | build type: {identity.build_type} | "
+        f"build ID: {identity.build_id} | timestamp: {identity.build_timestamp}\n"
         f"Git working tree dirty: {dirty}\n"
         f"JUnit outcomes (including subtests): {counts['passed']} passed, {counts['failed']} failed, "
         f"{counts['skipped']} skipped, {counts['errors']} errors\n"
