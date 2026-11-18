@@ -3,14 +3,16 @@
 **Story:** AIDM-DES-030.1  
 **Authority:** Golden Braid Engineering Standards §8  
 **Developer:** COSTA  
-**Status:** Implementation prepared; root VERSION is gated on Project Owner/ALEK approval of the Sprint 1 release target  
+**Status:** Sprint 1 application release target v0.1.0 approved by Project Owner 18 November 2026; root VERSION seeded. This is not a published release.  
 **Change Log:** 2026-11-18 COSTA — first source/build-identity implementation.
 
-## 1. Why VERSION is not yet in this PR
+## 1. Authoritative VERSION — Sprint 1 target approved
 
-The currently approved Sprint Plan - 1.2 Transition (v1.3) says the proposed Sprint 1 application version is `v0.1.0`, **pending explicit approval**. Do not seed a root VERSION until ALEK records approval of that target in the Sprint Plan. The value `0.1.0` appears in synthetic tests only; it is not a release decision. When approved, commit a root file named `VERSION` containing **only** the approved `MAJOR.MINOR.PATCH` value (without leading `v`), followed by a newline. No secondary runtime version constant is permitted.
+On **18 November 2026**, the Project Owner explicitly approved **v0.1.0** as the Sprint 1 application release target. ALEK's Sprint Plan - 1.2 Transition v1.3 now has an approval addendum preserving that decision. The repository root `VERSION` is seeded to **`0.1.0`** (without a leading v); it is the **only** hand-maintained declared application version.
 
-Missing or malformed VERSION causes `read_version()` to raise `VersionError` with a value-free message. A runnable developer identity may report `version=UNKNOWN` rather than claiming a version prematurely. A Git checkout still exposes its exact full SHA if Git is available.
+Version approval **does not** mean Sprint 1 is released. A developer checkout remains `development` even if VERSION declares the approved target. Release verification, tagged release publication and Sprint closure are governed by **AIDM-DES-030.2** and **PLAN-010**. No tag or GitHub Release has been created in this Story.
+
+Missing or malformed VERSION causes `read_version()` to raise a value-safe `VersionError`; absent version metadata cannot be silently converted into a released version. A Git checkout still exposes its full SHA when Git is available.
 
 ## 2. Runtime public API
 
@@ -42,7 +44,7 @@ python -m aidm
 
 ## 4. Generated manifest, never committed
 
-A development packaging helper is available after VERSION approval and a final, **clean** source commit:
+A development packaging helper is available after the accepted final, **clean** source commit:
 
 ```powershell
 python -m aidm.versioning --generate-development-manifest
@@ -68,4 +70,4 @@ The standard `python -m aidm.test_runner` produces `reports/test-runs/<run-id>/r
 
 ## 6. Integration and limitations
 
-Implementation is an **increment**, not the whole release mechanism. AIDM-DES-030.2 owns release approval/tag/manifest designation; AIDM-DES-013 owns actual service startup and diagnostic endpoint; AIDM-DES-014 owns the future browser view; AIDM-DES-035 owns log format/routing; AIDM-DES-027.1 owns CI. Acceptance criterion requiring a seeded root VERSION cannot be satisfied until the Sprint release target is approved. Document that blocker in Airtable; do not mark this Story Complete prematurely.
+Implementation is an **increment**, not the whole release mechanism. AIDM-DES-030.2 owns release approval/tag/manifest designation; AIDM-DES-013 owns actual service startup and diagnostic endpoint; AIDM-DES-014 owns the future browser view; AIDM-DES-035 owns log format/routing; AIDM-DES-027.1 owns CI. The root VERSION prerequisite is now satisfied by explicit Project Owner approval. Before marking the Technical Story Complete, rerun the full test suite against the exact committed revision and record verifiable results in Airtable. Release publication remains separate under DES-030.2.
