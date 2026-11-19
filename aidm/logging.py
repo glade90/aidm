@@ -3,6 +3,7 @@
 Purpose: One emoji/caller-aware logger, timed tracing and safe SQL execution hook.
 Usage: from aidm.logging import log, configure_logging, execute_logged
 Change Log: 2026-11-17 COSTA — AIDM-DES-035.1 technical logging foundation.
+            2026-11-18 COSTA — AIDM-DES-030.1 structured identity records.
 
 Only one process may rotate a given file: multiprocess listeners/adapters are deferred.
 Never pass secrets, player-only/DM-only text, or raw exception messages to log.*.
@@ -15,6 +16,7 @@ from contextvars import ContextVar
 from datetime import datetime, timezone
 import functools
 import inspect
+import json
 import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -53,10 +55,32 @@ class _EmojiFormatter(logging.Formatter):
         return f"{timestamp} {emoji} {caller} | {message}{suffix}"
 
 
+class _JsonFormatter(logging.Formatter):
+    """Optional structured JSONL diagnostics with exact immutable build identity."""
+    def format(self, record: logging.LogRecord) -> str:
+        fields = {
+            "timestamp": datetime.fromtimestamp(record.created, timezone.utc).isoformat(timespec="milliseconds"),
+            "severity": record.levelno,
+            "emoji": _EMOJI.get(record.levelno, "❓"),
+            "caller": getattr(record, "caller", "UNKNOWN"),
+            "message": record.getMessage(),
+            "correlation_id": getattr(record, "correlation_id", None),
+            "exception_type": getattr(record, "exception_type", None),
+            "version": getattr(record, "version", "UNKNOWN"),
+            "source_sha": getattr(record, "source_sha", "UNKNOWN"),
+            "build_id": getattr(record, "build_id", "UNKNOWN"),
+            "build_type": getattr(record, "release_kind", "UNKNOWN"),
+            "build_timestamp": getattr(record, "build_timestamp", "UNKNOWN"),
+            "dirty": getattr(record, "dirty", "UNKNOWN"),
+        }
+        return json.dumps(fields, ensure_ascii=False, separators=(",", ":"))
+
+
 def configure_logging(
     *, path: str | Path = "logs/technical.log", level: str = "INFO",
     max_bytes: int = 10 * 1024 * 1024, backup_count: int = 5,
     console: bool = False, slow_ms: float = 1000.0,
+    json_path: str | Path | None = None,
 ) -> None:
     """Configure one shared file logger, replacing rather than duplicating handlers."""
     global _CONFIGURED, _SLOW_MS
@@ -72,6 +96,15 @@ def configure_logging(
                                       encoding="utf-8")
         handler.setFormatter(_EmojiFormatter())
         handlers: list[logging.Handler] = [handler]
+        if json_path is not None:
+            structured = Path(json_path)
+            structured.parent.mkdir(parents=True, exist_ok=True)
+            json_handler = RotatingFileHandler(
+                structured, maxBytes=max_bytes, backupCount=backup_count,
+                encoding="utf-8",
+            )
+            json_handler.setFormatter(_JsonFormatter())
+            handlers.append(json_handler)
         if console:
             stream = logging.StreamHandler()
             stream.setFormatter(_EmojiFormatter())
@@ -85,6 +118,10 @@ def configure_logging(
         _LOGGER.setLevel(_LEVELS[name])
         _LOGGER.propagate = False
         _SLOW_MS = float(slow_ms)
+        if _IDENTITY_PROVIDER is None:
+            # Resolve the same identity once at startup; DES-030.2 controls releases.
+            from .versioning import get_build_identity
+            set_identity_provider(get_build_identity().for_logging)
         _CONFIGURED = True
 
 
@@ -106,7 +143,7 @@ def set_identity_provider(provider: Callable[[], Mapping[str, str]] | None) -> N
 
 
 def _identity() -> dict[str, str]:
-    names = ("version", "source_sha", "build_id", "release_kind")
+    names = ("version", "source_sha", "build_id", "release_kind", "build_timestamp", "dirty")
     try:
         supplied = dict(_IDENTITY_PROVIDER()) if _IDENTITY_PROVIDER else {}
     except Exception:

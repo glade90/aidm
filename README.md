@@ -6,7 +6,7 @@ AIDM is the AI Dungeon Master project part of the **The Golden Braid**, Eric Kas
 
 The architectural direction includes a persistent runtime, browser interface, conversational DM, and orchestrators for adventure, expedition, character creation, geometry, rules, bookkeeping, encounters, combat, and cartography. Rules, dice, geometry and game-state changes are validated by tools and services—not made authoritative by LLM narration. Framework selection remains open.
 
-This repository establishes the **source-control foundation**, not a completed game. Application code, unit-test infrastructure, CI, runtime, and release/version tooling belong to separate approved Developer Stories.
+This repository is an evolving **engineering foundation**, not yet a playable game. Initial shared configuration, logging and automated testing exist; the Meta Service/runtime, CI and controlled release publication remain separately scoped.
 
 ## Branch workflow
 
@@ -21,7 +21,7 @@ Use `type(scope): description` (e.g. `test(repo): AIDM-DES-028.1 add pytest smok
 
 ## Security and content
 
-Never commit passwords, API keys, `.env` files, private keys, or confidential or restricted content. A future committed `.env.example` may document placeholder names, but never working credentials. The B1 module, rulebook material and other potentially copyrighted content must not be redistributed without permission. See `.gitignore` for local artefact exclusions.
+Never commit passwords, API keys, `.env` files, private keys, or confidential or restricted content. The committed `.env.example` documents placeholder settings only, never working credentials. The B1 module, rulebook material and other potentially copyrighted content must not be redistributed without permission. See `.gitignore` for local artefact exclusions.
 
 ## Local configuration
 
@@ -59,6 +59,14 @@ log.info("AIDM runtime configuration loaded")
 
 Use `@log.trace_calls` for opt-in method timing, `log.correlation("turn-42")` for cross-event context, and `execute_logged(fake_cursor, "SELECT ... WHERE id=?", (51,))` for the first fake-driver SQL hook. Do **not** log credentials, raw exception messages, raw SQL bind values or hidden game-state data. See [Technical logging guide](docs/LOGGING.md) for rotation, filters, safe integration, tests and intentionally deferred real-database/LLM/replay work (AIDM-DES-035.1).
 
+## Version and build identity
+
+Run `python -m aidm --version` to view the declared application version, **full** Git source SHA, development/release classification, build ID, timestamp and dirty state. `python -m aidm` prints the same startup identity hook, but **does not launch a game** until the future Meta Service is implemented. The shared status contract is `from aidm.versioning import diagnostics`.
+
+**Governance:** The Project Owner approved Sprint 1's application target **`v0.1.0` on 18 November 2026**, now recorded in the Sprint Plan's approval addendum. The authoritative root [`VERSION`](VERSION) contains **`0.1.0`**, without a leading `v`. This is the planned version—not evidence of a published release. Developer checkouts identify as **development** builds regardless of that target.
+
+An optional build-time helper generates a Git-ignored manifest against the final clean Git commit so packaged code can identify itself without Git. Only the separate controlled release Story **AIDM-DES-030.2** may approve a release build, tag or GitHub Release. The logger's optional structured JSONL and standard test reports consume the same build identity. See [Version and Runtime Build Identity](docs/VERSIONING.md) for usage and remaining approval/integration tasks.
+
 ## Programme references
 
 - [Airtable](https://airtable.com/appG1E9VVbXBS7ZB0/pagkLWL3XMiwNHuEl/edit?utm_source=chatgpt.com) is authoritative for Stories, ownership, scope, Test Results and Release Notes.
@@ -66,4 +74,4 @@ Use `@log.trace_calls` for opt-in method timing, `log.correlation("turn-42")` fo
 - Architecture: *Courses → Golden Braid → AIDM - Architecture & Execution*, version 0.3 (12 November 2026), a planning rebaseline, not approved technical design.
 - Sprint 1 transition: *Sprint Plan - 1.1 Transition*, baseline v1.2 (17 November 2026).
 
-**Bootstrap story:** `AIDM-DES-026.1` (Technical Build). `VERSION`, CI, pytest, and the application skeleton intentionally belong to later Stories.
+**Bootstrap story:** `AIDM-DES-026.1` (Technical Build). The approved `VERSION` target is implemented under `AIDM-DES-030.1`; release publication, CI and the application runtime remain separately scoped.
