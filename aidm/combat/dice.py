@@ -1,37 +1,38 @@
-"""One rules-neutral AIDM dice request, deterministic queue and unbiased random source.
+"""Source-injected, rules-neutral raw dice (AIDM-DES-005.2).
 
-Purpose: Produce exact faces with per-die identity and replay-ready provenance.
-Usage: DiceRoller(FixedRollSource([2, 5])).roll(RollRequest(2, 6, request_id="r", correlation_id="c"))
-Change Log: 2026-11-20 COSTA — AIDM-DES-005.2 first single-expression roll increment.
+Purpose: Roll actual selected Die values; report unmodified faces and provenance.
+Usage: DiceRoller(FixedRollSource([12])).roll(Die('blue-d20', 20, 'blue'))
+Change Log: 2026-11-20 COSTA — owner-approved raw Die architecture (§10).
 
-DES-005.3 owns mixed-sided roll batches. This module does not validate D&D
-rules, authorise collectible die IDs, commit events or modify game state.
+Dice have identity, sides and appearance, never combat modifiers. Rules and
+state resolution belong to other services. DES-005.3 owns full combat batches.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
-import re
 import secrets
 from threading import Lock
-from typing import Iterable, Protocol
+from typing import Protocol
+from uuid import uuid4
 
 
 class InvalidDiceRequest(ValueError):
-    """Invalid roll request or unsupported dice expression (safe public message)."""
+    """Caller supplied an invalid die/selection/roll identifier."""
 
 
 class FixedRollsExhausted(ValueError):
-    """Not enough queued fixed values; no faces were consumed."""
+    """Fixed queue lacks faces; cursor did not move."""
 
 
 class FixedRollOutOfRange(ValueError):
-    """One of the next queued values cannot represent the requested die."""
+    """A queued face is invalid for the selected die; cursor did not move."""
 
 
 class InvalidRollSource(ValueError):
-    """Injected source did not obey the agreed typed die-source contract."""
+    """Injected source violates the raw-face contract."""
 
 
 class RollSourceKind(str, Enum):
@@ -39,10 +40,8 @@ class RollSourceKind(str, Enum):
     SYSTEM_RANDOM = "SYSTEM_RANDOM"
 
 
-_DICE = re.compile(r"(?P<count>[0-9]*)[dD](?P<sides>[0-9]+)(?:(?P<sign>[+-])(?P<modifier>[0-9]+))?\Z")
 _MAX_COUNT = 100
 _MAX_SIDES = 1000
-_MAX_MODIFIER = 1_000_000
 
 
 def _integer(value: object, *, lower: int, upper: int, field: str) -> None:
@@ -50,97 +49,65 @@ def _integer(value: object, *, lower: int, upper: int, field: str) -> None:
         raise InvalidDiceRequest(f"Invalid {field}: expected integer in [{lower}, {upper}]")
 
 
-def _id(value: object, field: str, *, optional: bool = False) -> None:
+def _label(value: object, field: str, *, max_length: int = 128, optional: bool = False) -> None:
     if optional and value is None:
         return
-    if not isinstance(value, str) or not value.strip():
-        raise InvalidDiceRequest(f"Missing or invalid {field}")
+    if not isinstance(value, str) or not value.strip() or len(value) > max_length:
+        raise InvalidDiceRequest(f"Invalid {field}: expected nonblank string of at most {max_length} characters")
 
 
-def _dice_bounds(count: object, sides: object) -> None:
-    _integer(count, lower=1, upper=_MAX_COUNT, field="count")
-    _integer(sides, lower=2, upper=_MAX_SIDES, field="sides")
-
-
-def parse_dice_expression(expression: str) -> tuple[int, int, int]:
-    """Strict dS/NdS±M parser; no arithmetic evaluator or rules decision."""
-    if not isinstance(expression, str):
-        raise InvalidDiceRequest("Invalid dice expression")
-    # Bound work before integer conversion; very long numerals otherwise raise
-    # an implementation-specific ValueError instead of our typed error.
-    if len(expression) > 64:
-        raise InvalidDiceRequest("Dice expression exceeds length limit")
-    match = _DICE.fullmatch(expression.strip())
-    if match is None:
-        raise InvalidDiceRequest("Unsupported dice expression")
-    count = int(match["count"]) if match["count"] else 1
-    sides = int(match["sides"])
-    modifier = int(match["modifier"]) if match["modifier"] is not None else 0
-    if match["sign"] == "-":
-        modifier = -modifier
-    _dice_bounds(count, sides)
-    _integer(modifier, lower=-_MAX_MODIFIER, upper=_MAX_MODIFIER, field="modifier")
-    return count, sides, modifier
+def _sides_sequence(sides: Sequence[int]) -> tuple[int, ...]:
+    if not isinstance(sides, Sequence) or isinstance(sides, (str, bytes, bytearray)):
+        raise InvalidDiceRequest("Expected an ordered dice sides sequence")
+    if not 1 <= len(sides) <= _MAX_COUNT:
+        raise InvalidDiceRequest("Invalid number of selected dice")
+    result = tuple(sides)
+    for value in result:
+        _integer(value, lower=2, upper=_MAX_SIDES, field="sides")
+    return result
 
 
 @dataclass(frozen=True, slots=True)
-class RollRequest:
-    """Exactly one homogeneous dice expression; ID labels are not authority."""
+class Die:
+    """One selected collectible or explicitly registered virtual die.
 
-    count: int = 1
-    sides: int = 20
-    modifier: int = 0
-    request_id: str = ""
-    correlation_id: str = ""
-    purpose: str | None = None
-    actor_id: str | None = None
-    die_ids: tuple[str, ...] | None = None
+    No face, actor, combat purpose, modifier or random source belongs to Die.
+    Collection ownership and global uniqueness belong to a later resolver.
+    """
+
+    die_id: str
+    sides: int
+    colour: str
 
     def __post_init__(self) -> None:
-        _dice_bounds(self.count, self.sides)
-        _integer(self.modifier, lower=-_MAX_MODIFIER, upper=_MAX_MODIFIER, field="modifier")
-        _id(self.request_id, "request_id")
-        _id(self.correlation_id, "correlation_id")
-        _id(self.purpose, "purpose", optional=True)
-        _id(self.actor_id, "actor_id", optional=True)
-        if self.die_ids is not None:
-            if not isinstance(self.die_ids, tuple) or len(self.die_ids) != self.count:
-                raise InvalidDiceRequest("die_ids must be a tuple with one ID per die")
-            for die_id in self.die_ids:
-                _id(die_id, "die_id")
-
-    @classmethod
-    def from_expression(
-        cls, expression: str, *, request_id: str, correlation_id: str,
-        purpose: str | None = None, actor_id: str | None = None,
-        die_ids: tuple[str, ...] | None = None,
-    ) -> RollRequest:
-        count, sides, modifier = parse_dice_expression(expression)
-        return cls(count, sides, modifier, request_id, correlation_id, purpose, actor_id, die_ids)
+        _label(self.die_id, "die_id")
+        _integer(self.sides, lower=2, upper=_MAX_SIDES, field="sides")
+        _label(self.colour, "colour", max_length=80)
 
 
 @dataclass(frozen=True, slots=True)
 class SourceFace:
-    """One source-produced face, with optional zero-based fixed queue position."""
+    """Source-provided raw face, optionally with its fixed queue offset."""
 
     face: int
     queue_position: int | None = None
 
 
 class RollSource(Protocol):
+    """Injectable source; mixed-sided roll_sequence is all-or-nothing for FIXED."""
+
     kind: RollSourceKind
 
-    def roll_many(self, count: int, sides: int) -> tuple[SourceFace, ...]:
-        """Return exactly count ordered faces; fixed implementations must preflight."""
-        ...
+    def roll_sequence(self, sides: Sequence[int]) -> tuple[SourceFace, ...]: ...
+    def roll_many(self, count: int, sides: int) -> tuple[SourceFace, ...]: ...
 
 
 class FixedRollSource:
-    """Finite repeatable queue: validate entire next draw before advancing cursor."""
+    """Ordered fixture queue; validates the ENTIRE selection before consuming."""
 
     kind = RollSourceKind.FIXED
 
-    def __init__(self, faces: Iterable[int]) -> None:
+    def __init__(self, faces: Sequence[int]) -> None:
         self._faces = tuple(faces)
         self._cursor = 0
         self._lock = Lock()
@@ -150,97 +117,121 @@ class FixedRollSource:
         with self._lock:
             return self._cursor
 
-    def roll_many(self, count: int, sides: int) -> tuple[SourceFace, ...]:
-        _dice_bounds(count, sides)
+    def roll_sequence(self, sides: Sequence[int]) -> tuple[SourceFace, ...]:
+        selected = _sides_sequence(sides)
         with self._lock:
             start = self._cursor
-            upcoming = self._faces[start:start + count]
-            if len(upcoming) != count:
+            upcoming = self._faces[start:start + len(selected)]
+            if len(upcoming) != len(selected):
                 raise FixedRollsExhausted("Insufficient fixed roll faces")
-            if any(type(face) is not int or not 1 <= face <= sides for face in upcoming):
-                raise FixedRollOutOfRange("Queued fixed die face out of range")
-            draws = tuple(SourceFace(face, start + i) for i, face in enumerate(upcoming))
-            self._cursor += count
-            return draws
+            if any(type(face) is not int or not 1 <= face <= size
+                   for face, size in zip(upcoming, selected)):
+                raise FixedRollOutOfRange("Queued fixed face out of range for selected die")
+            result = tuple(SourceFace(face, start + i) for i, face in enumerate(upcoming))
+            self._cursor += len(selected)
+            return result
+
+    def roll_many(self, count: int, sides: int) -> tuple[SourceFace, ...]:
+        _integer(count, lower=1, upper=_MAX_COUNT, field="count")
+        _integer(sides, lower=2, upper=_MAX_SIDES, field="sides")
+        return self.roll_sequence((sides,) * count)
 
 
 class SystemRandomSource:
-    """Ordinary independent local unbiased values, no network or LLM."""
+    """Unbiased local RNG. No LLM, network or external entropy provider."""
 
     kind = RollSourceKind.SYSTEM_RANDOM
 
+    def roll_sequence(self, sides: Sequence[int]) -> tuple[SourceFace, ...]:
+        selected = _sides_sequence(sides)
+        return tuple(SourceFace(secrets.randbelow(size) + 1) for size in selected)
+
     def roll_many(self, count: int, sides: int) -> tuple[SourceFace, ...]:
-        _dice_bounds(count, sides)
-        return tuple(SourceFace(secrets.randbelow(sides) + 1) for _ in range(count))
+        _integer(count, lower=1, upper=_MAX_COUNT, field="count")
+        _integer(sides, lower=2, upper=_MAX_SIDES, field="sides")
+        return self.roll_sequence((sides,) * count)
 
 
 @dataclass(frozen=True, slots=True)
-class DieResult:
-    """One ordered face and its declared identity, independent from RNG source."""
+class RawDieResult:
+    """One immutable numeric fact; its meaning is owned by the Rules Engine."""
 
-    die_index: int                  # 1-based in this request
+    roll_id: str
+    die_id: str
+    sides: int
     face: int
-    sides: int
     source: RollSourceKind
-    queue_position: int | None     # 0-based, only for FIXED
-    die_id: str | None             # Unassigned when caller supplied no die ID
-
-
-@dataclass(frozen=True, slots=True)
-class RollResult:
-    """Immutable replay-ready numeric fact, not a committed combat event."""
-
-    request_id: str
-    correlation_id: str
-    count: int
-    sides: int
-    modifier: int
-    purpose: str | None
-    actor_id: str | None
-    dice: tuple[DieResult, ...]
-    raw_sum: int
-    total: int
-    source: RollSourceKind
-
-    @property
-    def faces(self) -> tuple[int, ...]:
-        return tuple(die.face for die in self.dice)
+    queue_position: int | None
+    die_index: int = 1
+    roll_group_id: str | None = None
+    correlation_id: str | None = None
 
 
 class DiceRoller:
-    """Typed single-request entry point. Never adjudicates or persists rolls."""
+    """Roll selected dice; never receives or calculates modifiers/totals."""
 
     def __init__(self, source: RollSource) -> None:
-        if not isinstance(getattr(source, "kind", None), RollSourceKind) or not callable(
-            getattr(source, "roll_many", None)
-        ):
-            raise InvalidRollSource("Source must provide kind and roll_many")
+        if (not isinstance(getattr(source, "kind", None), RollSourceKind)
+                or not callable(getattr(source, "roll_sequence", None))
+                or not callable(getattr(source, "roll_many", None))):
+            raise InvalidRollSource("Source must supply kind, roll_sequence and roll_many")
         self.source = source
 
-    def roll(self, request: RollRequest) -> RollResult:
-        if not isinstance(request, RollRequest):
-            raise InvalidDiceRequest("Expected RollRequest")
-        # The request's frozen dataclass already validated IDs, bounds and die_ids.
-        source = self.source
-        draws = source.roll_many(request.count, request.sides)
-        if not isinstance(draws, tuple) or len(draws) != request.count:
-            raise InvalidRollSource("Source returned wrong number of faces")
-        for item in draws:
-            if not isinstance(item, SourceFace) or type(item.face) is not int or not 1 <= item.face <= request.sides:
+    def _draw(self, sides: Sequence[int]) -> tuple[SourceFace, ...]:
+        draws = self.source.roll_sequence(sides)
+        if not isinstance(draws, tuple) or len(draws) != len(sides):
+            raise InvalidRollSource("Source returned incorrect face count")
+        for item, size in zip(draws, sides):
+            if not isinstance(item, SourceFace) or type(item.face) is not int or not 1 <= item.face <= size:
                 raise InvalidRollSource("Source returned invalid face")
-            if source.kind is RollSourceKind.FIXED:
+            if self.source.kind is RollSourceKind.FIXED:
                 if type(item.queue_position) is not int or item.queue_position < 0:
-                    raise InvalidRollSource("Fixed source missing queue position")
+                    raise InvalidRollSource("Fixed source must report queue offset")
             elif item.queue_position is not None:
-                raise InvalidRollSource("Live source cannot claim fixed queue position")
-        dice = tuple(
-            DieResult(i + 1, draw.face, request.sides, source.kind, draw.queue_position,
-                      request.die_ids[i] if request.die_ids is not None else None)
-            for i, draw in enumerate(draws)
-        )
-        raw_sum = sum(die.face for die in dice)
-        return RollResult(
-            request.request_id, request.correlation_id,
-            request.count, request.sides, request.modifier, request.purpose,
-            request.actor_id, dice, raw_sum, raw_sum + request.modifier, source.kind,
+                raise InvalidRollSource("Live source cannot report fixed queue offset")
+        return draws
+
+    def roll(self, die: Die, *, roll_id: str | None = None,
+             correlation_id: str | None = None) -> RawDieResult:
+        """Return precisely one unmodified face for the explicitly selected die."""
+        if not isinstance(die, Die):
+            raise InvalidDiceRequest("Expected a selected Die object")
+        _label(roll_id, "roll_id", optional=True)
+        _label(correlation_id, "correlation_id", optional=True)
+        resolved_id = roll_id if roll_id is not None else f"roll-{uuid4().hex}"
+        draw = self._draw((die.sides,))[0]
+        return RawDieResult(resolved_id, die.die_id, die.sides, draw.face,
+                            self.source.kind, draw.queue_position,
+                            correlation_id=correlation_id)
+
+    def roll_many(self, dice: Sequence[Die], *, roll_group_id: str | None = None,
+                  correlation_id: str | None = None) -> tuple[RawDieResult, ...]:
+        """Raw handful only: mixed sides, no rule/actor/weapon batch semantics.
+
+        Fixed sources preflight every selected die atomically. DES-005.3 owns
+        the richer multi-actor grouped request and combat association contract.
+        """
+        if not isinstance(dice, Sequence) or isinstance(dice, (str, bytes, bytearray)):
+            raise InvalidDiceRequest("Expected selected dice sequence")
+        if not 1 <= len(dice) <= _MAX_COUNT:
+            raise InvalidDiceRequest("Invalid number of selected dice")
+        selected = tuple(dice)
+        if any(not isinstance(die, Die) for die in selected):
+            raise InvalidDiceRequest("Every selected item must be a Die")
+        _label(roll_group_id, "roll_group_id", optional=True, max_length=120)
+        _label(correlation_id, "correlation_id", optional=True)
+        # One stable identity cannot refer to contradictory physical metadata
+        # within the same handful. Reusing the SAME die for several draws is fine.
+        descriptors: dict[str, Die] = {}
+        for die in selected:
+            previous = descriptors.setdefault(die.die_id, die)
+            if previous != die:
+                raise InvalidDiceRequest("Conflicting descriptors for selected die_id")
+        group_id = roll_group_id if roll_group_id is not None else f"group-{uuid4().hex}"
+        draws = self._draw(tuple(die.sides for die in selected))
+        return tuple(
+            RawDieResult(f"{group_id}:{i + 1}", die.die_id, die.sides, draw.face,
+                         self.source.kind, draw.queue_position, die_index=i + 1,
+                         roll_group_id=group_id, correlation_id=correlation_id)
+            for i, (die, draw) in enumerate(zip(selected, draws))
         )
