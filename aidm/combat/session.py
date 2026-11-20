@@ -97,11 +97,16 @@ class CombatSessionService:
         self, *,
         roll_source_factory: Callable[[], RollSource] = SystemRandomSource,
         intent_policy: IntentPolicy | None = None,
+        rule_profile_factory: Callable[[], RuleProfile] | None = None,
     ) -> None:
         if not callable(roll_source_factory):
             raise ValueError("Dice source factory must be callable")
         self._source_factory = roll_source_factory
         self._policy = intent_policy if intent_policy is not None else ScriptedIntentPolicy()
+        self._rule_profile_factory = (rule_profile_factory if rule_profile_factory is not None
+            else lambda: RuleProfile(
+                house_rule_overlays=(FLAIL_RULE,), fixture_loadout_confirmed=True,
+            ))
         self._sessions: dict[str, _ActiveEncounter] = {}
         self._lock = RLock()
 
@@ -142,9 +147,9 @@ class CombatSessionService:
                 dice = canonical_dice_kit(definition)
                 encounter_id = f"enc-{uuid4().hex}"
                 definition = replace(definition, encounter_id=encounter_id)
-                profile = RuleProfile(
-                    house_rule_overlays=(FLAIL_RULE,), fixture_loadout_confirmed=True,
-                )
+                profile = self._rule_profile_factory()
+                if not isinstance(profile, RuleProfile):
+                    return safe_failure(request, ErrorCode.INTERNAL_ERROR)
                 surprise = SurpriseResult(
                     SurpriseKind.NONE, encounter_id, "ENCOUNTER_AGENT",
                     "approved-synthetic-surprise-none", profile.profile_id,
