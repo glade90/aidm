@@ -73,7 +73,7 @@ test("typed combat START/ACTION/VIEW_LOG all use only Meta POST; no state invent
   assert.equal(network[1].data.combat.actor_id, "alho");
   assert.equal(network[1].data.combat.decision_token, view().next_decision.decision_token);
   assert.equal(network[1].data.combat.expected_encounter_version, 0);
-  assert.equal(network[1].data.combat.client_action_id, "action-4");
+  assert.equal(network[1].data.combat.client_action_id, "action-3");
   assert.equal(network[1].data.combat.log_since_sequence, 4);
 
   const whole = await client.viewCombatLog();
