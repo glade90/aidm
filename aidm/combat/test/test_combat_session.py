@@ -172,7 +172,6 @@ def test_two_real_rounds_roll_math_human_handoff_and_terminal_in_browser_api():
         assert any(e["kind"] == "ENCOUNTER_TERMINAL" for e in logs)
         assert any(e["phase"] == "MISSILE" and "SCENARIO_RULE_DISABLED" in e["text"]
                    for e in logs)
-        assert "hp_before" not in whole.text if hasattr(whole, "text") else True
         text = json.dumps(whole)
         for private in ("defender_ac", "hp_before", "hp_after", "hidden_traits",
                         "source_event_id", "private_model_proposal", "rules_profile_ref"):
