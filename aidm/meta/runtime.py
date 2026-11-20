@@ -213,8 +213,8 @@ class MetaRuntime:
             self._build = self._identity_provider()
             if not isinstance(self._build, BuildIdentity):
                 raise TypeError("Invalid build identity")
+            self._logger_started = True  # Close even if configuration fails partway.
             self.logger.start(self.settings)
-            self._logger_started = True
             for _, service in self.registry.items():
                 self._started.append(service)  # May own resources even if start() fails partway.
                 await _invoke_if_present(service, "start")
