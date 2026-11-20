@@ -12,7 +12,7 @@ The existing `CombatAgent(Braider)` is injected as a handler, not instantiated i
 
 - `aidm/dm/agent.py`: `DungeonMasterAgent(Braider)`, synchronously callable via `handle(request)` or `__call__(request)`. It accepts injected generic Braider runtime/model mapping (unused for DM inference), an injected Combat handler, and a trusted `approved_encounter_id` fixture.
 - `aidm/dm/__init__.py`: package export.
-- `aidm/dm/test/test_agent.py`: offline gateway, error, ID, no-DM-LLM, sequential-isolation and real FastAPI integration checks.
+- `aidm/dm/test/test_dm_agent.py`: offline gateway, error, ID, no-DM-LLM, sequential-isolation and real FastAPI integration checks.
 
 No new HTTP endpoint or CLI harness is created. The CLI prototype belongs to DES-015.3 and the HTML chat to DES-014.1.
 
@@ -33,7 +33,7 @@ Run from the AIDM repository root with installed dev dependencies:
 
 ```bash
 python -m pip install -r requirements-dev.txt
-python -m pytest aidm/dm/test/test_agent.py -q
+python -m pytest aidm/dm/test/test_dm_agent.py -q
 python -m aidm.test_runner
 ```
 
