@@ -108,6 +108,19 @@ def test_preserves_specialist_status_and_exact_approved_narrative():
     assert "DO_NOT_LEAK" not in str(response)
 
 
+@pytest.mark.parametrize("phrase", [
+    "I swing my sword at the orc.",
+    "I swing my sword at the orc!",
+    "I swing my sword at the orc",
+])
+def test_approved_browser_period_fixture_keeps_exact_words(phrase):
+    dm, runtime, combat = gateway()
+    response = dm.handle(turn(phrase))
+    assert response.status is ResultStatus.COMPLETED
+    assert combat.calls[0].payload["player_text"] == phrase
+    assert runtime.calls == []
+
+
 def test_actual_combat_agent_stub_uses_only_its_own_fake_model():
     combat_runtime = FakeModelRuntime("SECRET untrusted model proposal")
     combat = CombatAgent(
