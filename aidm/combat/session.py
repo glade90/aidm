@@ -54,6 +54,19 @@ class ScriptedIntentPolicy:
         text = player_text.strip().casefold()
         if text in ("hold", "wait", "pass", "stand firm", "skip", "defend"):
             return "HOLD", None
+
+        # The active DM prompt has already established WHO acts and that the
+        # choice is a melee target. A short answer is an attack intention, not
+        # a request to invent a new mechanic. Resolve only an exact visible
+        # target ID/name/number; ambiguous or unlisted targets fail closed.
+        shorthand = re.fullmatch(r"(?:orc[ -]?)?0*([1-9][0-9]*)", text)
+        if shorthand is not None:
+            candidate = f"orc-{int(shorthand.group(1)):02d}"
+            if candidate in allowed_targets:
+                return "ATTACK_MELEE", candidate
+            return "NEEDS_CLARIFICATION", None
+        if text in allowed_targets:
+            return "ATTACK_MELEE", text
         if re.search(r"\b(cast|spell|shoot|bow|arrow|move|run|retreat|switch|equip|draw|morale)\b", text):
             return "UNSUPPORTED_RULE", None
         if not re.search(r"\b(attack|attacks|hit|strike|swing|slash|flail)\b", text):
