@@ -146,6 +146,7 @@ class PlayerCombatView(BaseModel):
     next_decision: CombatDecisionView | None = None
     new_log_entries: list[CombatLogView]
     log_next_cursor: int = Field(ge=0)
+    party_status: list[PartyMemberView] = Field(default_factory=list)
     surviving_party_summary: list[PartyMemberView] | None = None
     deferred_labels: list[str]
 
