@@ -122,6 +122,10 @@ test("unknown timeout never retries a mutable ACTION; VIEW_LOG is allowed", asyn
   assert.equal(uncertain.status, "ERROR");
   assert.equal(calls.length, 2);
   assert.equal(client.combatState.state_version, 0);
+  const blocked = await client.send("attack Orc 1");
+  assert.equal(blocked.status, "BLOCKED");
+  assert.match(blocked.message, /View the full combat log/i);
+  assert.equal(calls.length, 2, "Do not blindly retry an uncertain action");
   await client.viewCombatLog();
   assert.equal(calls.length, 3);
   assert.equal(calls[2].combat.kind, "VIEW_LOG");
