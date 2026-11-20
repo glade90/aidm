@@ -6,6 +6,7 @@ Usage: dm = DungeonMasterAgent(runtime=fake, model_targets=targets,
                               approved_encounter_id="synthetic-encounter")
        result = dm.handle(player_turn_request)
 Change Log: 2026-11-20 DAVOS — AIDM-DES-015.2 initial non-LLM gateway.
+            2026-11-20 DAVOS — AIDM-DES-014.1 accept the approved period fixture.
 
 The DM inherits programme-wide Braider but deliberately never calls invoke().
 Real DM intent selection, narration, context memory and game state are deferred.
@@ -76,7 +77,14 @@ class DungeonMasterAgent(Braider):
             )
         # An exact, predetermined demo phrase is the only accepted action.
         # Do not parse free-form language into attacks or add DM LLM calls here.
-        if player_text.strip().casefold().rstrip("!") != _SCRIPTED_COMBAT_TEXT:
+        # BON's browser fixture uses a final period; the earlier DM test used
+        # an exclamation mark. Accept only these scripted variants and forward
+        # the exact original text. This is NOT general intent interpretation.
+        if player_text.strip().casefold() not in (
+            _SCRIPTED_COMBAT_TEXT,
+            _SCRIPTED_COMBAT_TEXT + ".",
+            _SCRIPTED_COMBAT_TEXT + "!",
+        ):
             return safe_failure(
                 request, ErrorCode.UNKNOWN_CAPABILITY, status=ResultStatus.BLOCKED,
             )
