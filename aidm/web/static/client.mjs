@@ -158,8 +158,10 @@ export class ChatApiClient {
         && Number.isInteger(body.combat.log_next_cursor)
         && Array.isArray(body.combat.new_log_entries)
         ? body.combat : null;
+      // A denial may correctly omit a combat view (e.g. wrong encounter).
+      // But a purported successful typed combat response must include one.
       if (combat !== null && combatView === null
-          && body.status !== "ERROR") {
+          && body.status === "COMPLETED") {
         return this.badReply(correlationId);
       }
       if (combatView !== null) this.combatState = combatView;
