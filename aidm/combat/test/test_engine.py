@@ -111,15 +111,107 @@ def test_surprise_opening_side_only_then_normal_initiative(surprising_side,first
     assert engine.next_decision()==next_regular  # Repeated read does not reconsumes surprise.
 
 
-def test_tied_initiative_never_selects_fake_winner_or_consumes_attack_die():
-    engine,src=make_engine([4,4,20])
-    assert engine.next_decision() is None
-    assert src.cursor==2
-    assert engine.status() is CombatStatus.NEEDS_RULING
-    assert events(engine,"TIED_INITIATIVE_UNSUPPORTED")[0].details["simultaneous"]
+def test_tied_initiative_deferred_simultaneous_damage_killed_orc_attacks_back():
+    # Both attackers start the tie alive. Even when Alho's first queued attack
+    # would kill orc-01, that orc still gets its full eligible melee attack.
+    d=scene()
+    alho=replace(d.party.members[0],hp_current=1,armor_class_source=9)
+    party=replace(d.party,side=replace(d.party.side,members=(alho,*d.party.members[1:])))
+    foe=d.opposing_forces[0]
+    orc=replace(foe.side.members[0],hp_current=1)
+    force=replace(foe,side=replace(foe.side,members=(orc,*foe.side.members[1:])))
+    d=replace(d,party=party,opposing_forces=(force,))
+    engine,src=make_engine([4,4, 18,4, 18,4, 6,2],definition=d)
+    d1=engine.next_decision()
+    assert d1.actor_id=="alho" and src.cursor==2
+    assert engine.status() is CombatStatus.NEEDS_PLAYER_INPUT
+    assert len(events(engine,"SIMULTANEOUS_EXCHANGE_STARTED"))==1
+    assert events(engine,"SIMULTANEOUS_EXCHANGE_STARTED")[0].details["no_side_wins"]
+    _,result=act(engine,"ATTACK_MELEE","orc-01")
+    assert result["pending_simultaneous_resolution"] is True
+    assert result["damage"]==4 and result["outcome"] is None
+    assert engine.snapshot()["hp"]["orc-01"]==1  # NOT killed early
     assert not events(engine,"MELEE_RESOLVED")
-    assert engine.next_decision() is None
-    assert src.cursor==2
+    for _ in range(2):act(engine)
+    assert engine.next_decision().actor_id=="orc-01"  # killed orc still acts
+    _,counter=act(engine,"ATTACK_MELEE","alho")
+    assert counter["hit"] and counter["pending_simultaneous_resolution"]
+    assert engine.snapshot()["hp"]["alho"]==1  # not injured until commit
+    for _ in range(2):act(engine)
+    next_round=engine.next_decision()
+    assert next_round is not None and next_round.round_index==2
+    assert next_round.actor_id=="evro"  # both casualties skip NEXT round
+    assert engine.snapshot()["hp"]["orc-01"]==0
+    assert engine.snapshot()["hp"]["alho"]==0
+    assert src.cursor==8  # 2 tied d6 + 2 d20/damage + fresh 2 normal d6
+    assert len(events(engine,"SIMULTANEOUS_EXCHANGE_COMMITTED"))==1
+    assert len(events(engine,"MELEE_RESOLVED"))==2
+    assert all(e.details["simultaneous"] for e in events(engine,"MELEE_RESOLVED"))
+    assert {e.actor_id for e in events(engine,"MELEE_RESOLVED")}=={"alho","orc-01"}
+    assert len(events(engine,"SIDE_INITIATIVE"))==2
+    assert not events(engine,"TIED_INITIATIVE_UNSUPPORTED")
+
+
+def test_tied_initiative_all_hold_resolves_to_next_round_no_fake_winner():
+    e,src=make_engine([3,3, 6,2])
+    assert e.next_decision().actor_id=="alho"
+    for _ in range(6):
+        decision,result=act(e)
+        assert result["kind"]=="HOLD"
+        assert e.snapshot()["simultaneous_exchange_pending"]
+    next_round=e.next_decision()
+    assert next_round.round_index==2 and next_round.actor_id=="alho"
+    assert src.cursor==4
+    assert e.snapshot()["hp"]=={a.encounter_actor_id:a.hp_current for a in scene().members}
+    assert len(events(e,"ACTION_HELD"))==6
+    assert len(events(e,"SIMULTANEOUS_EXCHANGE_COMMITTED"))==1
+    assert events(e,"SIMULTANEOUS_EXCHANGE_COMMITTED")[0].details["hp_deltas"]=={}
+    assert len(events(e,"ROUND_COMPLETED"))==1
+    assert not events(e,"ENCOUNTER_TERMINAL")
+
+
+def test_tied_initiative_multiple_hits_aggregate_once_without_sequential_hp():
+    # Two characters target the same initially live orc. At the end of the
+    # simultaneous exchange one HP update applies the total (not a first hit
+    # that prevents the other attack from occurring).
+    d=scene()
+    foe=d.opposing_forces[0]
+    first=replace(foe.side.members[0],hp_current=5)
+    d=replace(d,opposing_forces=(replace(foe,side=replace(foe.side,members=(first,*foe.side.members[1:]))),))
+    e,src=make_engine([2,2,18,4,18,2,6,2],definition=d)
+    _,first_hit=act(e,"ATTACK_MELEE","orc-01")
+    _,second_hit=act(e,"ATTACK_MELEE","orc-01")
+    assert first_hit["damage"]==4 and second_hit["damage"]==5
+    assert e.snapshot()["hp"]["orc-01"]==5
+    for _ in range(4):act(e)
+    assert e.next_decision().round_index==2
+    assert e.snapshot()["hp"]["orc-01"]==0
+    results=events(e,"MELEE_RESOLVED")
+    assert len(results)==2
+    assert all(x.details["hp_before"]==5 and x.details["hp_after"]==0 for x in results)
+    assert all(x.details["aggregate_damage"]==9 for x in results)
+    assert events(e,"SIMULTANEOUS_EXCHANGE_COMMITTED")[0].details["hp_deltas"]=={"orc-01":-5}
+    assert src.cursor==8
+
+
+def test_tied_initiative_terminal_victory_occurs_only_after_opposing_actions():
+    e,src=make_engine([3,3,18,6,18,4,18,4])
+    for target in ("orc-01","orc-02","orc-03"):
+        _,attack=act(e,"ATTACK_MELEE",target)
+        assert attack["pending_simultaneous_resolution"]
+    assert all(e.snapshot()["hp"][o]>0 for o in ("orc-01","orc-02","orc-03"))
+    assert e.outcome is None
+    # Each orc still gets a turn; holds are their deliberately chosen intents.
+    for _ in range(3):act(e)
+    assert e.outcome is None
+    assert e.next_decision() is None
+    assert e.outcome=="PARTY_VICTORY"
+    assert len(events(e,"ENCOUNTER_TERMINAL"))==1
+    assert len(events(e,"MELEE_RESOLVED"))==3
+    assert len(events(e,"SIMULTANEOUS_EXCHANGE_COMMITTED"))==1
+    assert src.cursor==8
+    assert e.next_decision() is None
+    assert len(events(e,"ENCOUNTER_TERMINAL"))==1
 
 
 def test_phase_order_is_side_by_side_not_both_sides_before_action():
