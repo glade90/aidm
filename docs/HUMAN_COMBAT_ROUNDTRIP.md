@@ -18,9 +18,17 @@ Open **http://127.0.0.1:8000/chat**, click **Start 3 vs 3 combat**, and follow t
 - **Alho** when prompted: `HOLD` or `Alho attacks Orc 1 with his flail`
 - **Sho-Rembo** when prompted: `HOLD` or `Sho attacks Orc 2`
 
+When a human is prompted to pick a melee target, the conservative offline
+intent interpreter also accepts **`Orc 1`**, **`1`**, **`Orc 2`** or
+**`2`** as an attack against that *single currently legal visible target*.
+Those are not global commands: they only mean "attack that target" at a
+server-verified human melee decision. Unknown/dead/ambiguous targets safely ask
+for clarification; they never trigger an unvalidated attack. `HOLD` is the
+explicit non-attack action.
+
 Evro (retainer) and visible orcs receive conservative **scripted agent intentions** when it is their turn, always subject to COSTA's real target/rule validation. On each human response, the controller can advance multiple agent turns or a whole round, then stops for the next human. One message is **not** assumed to equal a full round.
 
-The browser displays the DM message and **Combat journal** (player-safe ordered events, initiative/phase status, raw d20/damage faces and source-applied modifiers, own party HP at terminal). **View full combat log** is read-only. A new browser tab has a fresh ephemeral session; server restart wipes encounter-local state. No new HTTP endpoint or second server has been introduced.
+The Dungeon Master summarises **verified hits, misses, holds, casualties and outcomes**, and separately asks for the next decision; it no longer responds with a content-free 'Combat action accepted'. The browser displays current **player-party HP** (including a visible 'down' label at 0 HP), the DM message and **Combat journal** (player-safe ordered events, initiative/phase status, raw d20/damage faces and source-applied modifiers, own party HP at terminal). **View full combat log** is read-only. A new browser tab has a fresh ephemeral session; server restart wipes encounter-local state. No new HTTP endpoint or second server has been introduced.
 
 The prior message-only example `I swing my sword at the orc.` still returns the old **SIMULATED** stub narrative when no structured combat session has been started. In active combat the same input is not necessarily legal until a specific human is prompted and a target is identified. Do not mistake old simulated text for real rolled combat.
 
@@ -107,3 +115,9 @@ Report source SHA, clean/dirty status, full JUnit counts, exact line coverage, r
 6. **Capacity**: original 1.33h story estimate is provisional/high risk; actual developer time must be Owner-confirmed, BON UAT actual separately added, and ALEK reconciles Sprint 2 capacity/transition.
 
 **Handoff:** DAVOS developer BUILD/TEST (Iteration 2.3) → merge → BON one independent *joint* DES-001.2 + DES-025.2 Functional UAT (Iteration 2.4) → Complete/ALEK only after acceptance and owner-confirmed total actual. 2.END is release-only.
+
+### Owner browser walkthrough corrections — 20 November 2026
+
+Owner's first PEQUOD 3v3 walkthrough verified actual side initiative, Orc attacks, Alho/Sho turns and third-round progression, but revealed three usability defects now addressed in this same draft PR: (1) the initial static notice incorrectly described **all** chat as simulated; (2) the DM simply answered 'Combat action accepted' while rules-resolved attacks occurred in a separate journal; (3) the offline parser accepted full `Alho attacks Orc 1` but rejected `Orc 1` and `1` after a specific pending target prompt. A reported Orc-first round applied 6 + 3 damage to Evro's 8 HP, legitimately incapacitating him before his agent turn. The UI now shows party HP throughout, and the public log/DM reports his fall. All public output derives from COSTA's engine: no synthetic successful roll, undeclared death mechanic or hidden opponent HP.
+
+**Regression:** `test_offline_target_shorthand_only_uses_pending_visible_target`, invalid/ambiguous shorthand, in-process HTTP shorthand→real combat, and an exact fixed-dice Orc-first Evro-0-HP fixture. Browser/Node test verifies safe live party HP and down label. Full PEQUOD source-matched Python/Node regression needs to be repeated after this correction; prior PASS receipts pertain to the preceding SHA.
