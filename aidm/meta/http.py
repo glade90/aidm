@@ -51,6 +51,7 @@ def create_app(
     async def lifespan(app: FastAPI):
         try:
             await runtime.start()
+            app.version = str(runtime.status()["build"]["version"])
         except Exception:
             # ASGI startup fails, and Uvicorn must not claim successful startup.
             raise
