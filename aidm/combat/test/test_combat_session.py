@@ -258,7 +258,7 @@ def test_initiative_can_incapacitate_evro_before_his_action_and_dm_reports_it():
         assert "Evro falls" in started["message"]
         assert any("Evro falls" in e["text"]
                    for e in view["new_log_entries"])
-        assert not any(e["actor_id"] == "evro" and e["kind"] == "MELEE_RESOLVED"
+        assert not any(e.actor_id == "evro" and e.kind == "MELEE_RESOLVED"
                        for e in service._sessions["s1"].engine.journal())
         assert sources[0].cursor == len(faces)
         assert "defender_ac" not in json.dumps(started)
