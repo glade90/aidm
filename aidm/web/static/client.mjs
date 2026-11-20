@@ -1,5 +1,6 @@
 /* AIDM-DES-014.1 — testable, framework-free Meta /api/turn HTTP client.
  * The browser owns no Combat API, rules, world state or persistent game memory.
+ * Change Log: 2026-11-20 DAVOS — correct native fetch receiver (browser failure).
  */
 
 const STATUSES = new Set([
@@ -17,7 +18,14 @@ export function createId(prefix) {
 }
 
 export class ChatApiClient {
-  constructor({ fetcher = globalThis.fetch, idFactory = createId, sessionId } = {}) {
+  constructor({
+    // Keep the native fetch call bound to its browser/global receiver.
+    // Passing globalThis.fetch by reference and then calling this.fetcher()
+    // can throw "Illegal invocation" before any POST reaches Uvicorn.
+    fetcher = (url, options) => globalThis.fetch(url, options),
+    idFactory = createId,
+    sessionId,
+  } = {}) {
     if (typeof fetcher !== "function" || typeof idFactory !== "function") {
       throw new TypeError("A fetch function and ID factory are required");
     }
