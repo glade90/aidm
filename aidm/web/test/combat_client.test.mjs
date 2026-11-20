@@ -27,6 +27,11 @@ function view(version = 0, { terminal = false, cursor = 4, events = [] } = {}) {
     },
     new_log_entries: events,
     log_next_cursor: cursor,
+    party_status: [
+      { actor_id: "alho", name: "Alho", hp_current: 8, hp_max: 8 },
+      { actor_id: "evro", name: "Evro", hp_current: 0, hp_max: 8 },
+      { actor_id: "sho-rembo", name: "Sho-Rembo", hp_current: 7, hp_max: 9 },
+    ],
     surviving_party_summary: terminal
       ? [{ actor_id: "alho", name: "Alho", hp_current: 8, hp_max: 8 }] : null,
     deferred_labels: ["Magic deferred"],
@@ -152,7 +157,7 @@ function makeDom() {
   const ids = [
     "chat-form", "player-message", "send-button", "transcript",
     "service-status", "combat-start", "combat-log", "combat-status",
-    "combat-board", "combat-events", "party-outcome",
+    "combat-board", "combat-events", "party-outcome", "party-status",
   ];
   for (const key of ids) controls[key] = new FakeElement();
   controls["service-status"].parentElement = new FakeElement();
@@ -191,4 +196,6 @@ test("journal renders only escaped text, ordered incremental entries and termina
   assert.match(journal.children[0].textContent, /damage die 5 \+ 3 = 8/);
   assert.ok(journal.children[0].textContent.includes(malicious));
   assert.match(dom.controls["party-outcome"].textContent, /Alho: 8\/8 HP/);
+  assert.match(dom.controls["party-status"].textContent, /Evro: 0\/8 HP \(down\)/);
+  assert.match(dom.controls["party-status"].textContent, /Sho-Rembo: 7\/9 HP/);
 });
