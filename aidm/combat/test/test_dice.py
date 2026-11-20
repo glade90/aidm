@@ -219,6 +219,8 @@ def test_parser_returns_numbers_and_modifier_only():
     assert parse_dice_expression("003D004-0002") == (3, 4, -2)
     with pytest.raises(InvalidDiceRequest):
         parse_dice_expression(12)
+    with pytest.raises(InvalidDiceRequest):
+        parse_dice_expression("d" + "9" * 5000)
 
 
 def test_source_api_rejects_invalid_count_or_sides():
