@@ -14,7 +14,7 @@
       <div>
         <p class="eyebrow">THE GOLDEN BRAID · AIDM</p>
         <h1 id="app-title">Dungeon Master</h1>
-        <p class="subtitle">Local chat prototype · simulated encounter only</p>
+        <p class="subtitle">Local prototype · deterministic combat or simulated chat</p>
       </div>
       <div class="connection" aria-live="polite">
         <span class="status-dot" aria-hidden="true"></span>
@@ -34,14 +34,16 @@
           aria-live="polite" aria-relevant="additions">
         <li class="message message--system">
           <span class="speaker">Prototype notice</span>
-          <p>Only the scripted combat example is supported. No dice, damage,
-             hit points or game state are changed.</p>
+          <p>Normal chat is a scripted simulation. Click Start 3 vs 3 combat
+             to use the Python combat engine for real dice, damage and temporary
+             encounter HP. Movement, spells, missiles and morale are not yet implemented.</p>
         </li>
       </ol>
     </section>
 
     <section id="combat-board" class="combat-board" aria-label="Player-safe combat journal" hidden>
       <h2>Combat journal</h2>
+      <p id="party-status" class="party-status" role="status"></p>
       <ol id="combat-events" aria-live="polite" aria-relevant="additions"></ol>
       <p id="party-outcome" class="party-outcome"></p>
     </section>
@@ -50,7 +52,7 @@
       <label for="player-message">Your message</label>
       <div class="composer-controls">
         <textarea id="player-message" name="message" rows="2" maxlength="4000"
-                  placeholder="I swing my sword at the orc."
+                  placeholder="During combat: Orc 1, 1, or HOLD"
                   aria-describedby="input-help" required></textarea>
         <button id="send-button" type="submit">Send</button>
       </div>
