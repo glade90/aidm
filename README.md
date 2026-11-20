@@ -6,7 +6,7 @@ AIDM is the AI Dungeon Master project part of the **The Golden Braid**, Eric Kas
 
 The architectural direction includes a persistent runtime, browser interface, conversational DM, and orchestrators for adventure, expedition, character creation, geometry, rules, bookkeeping, encounters, combat, and cartography. Rules, dice, geometry and game-state changes are validated by tools and services—not made authoritative by LLM narration. Framework selection remains open.
 
-This repository is an evolving **engineering foundation**, not yet a playable game. Initial shared configuration, logging and automated testing exist; the Meta Service/runtime, CI and controlled release publication remain separately scoped.
+This repository is an evolving **engineering foundation**, not yet a playable game. Initial shared configuration, logging and automated testing exist; the player-facing runtime integration, CI and controlled release publication remain separately scoped.
 
 ## Branch workflow
 
@@ -66,6 +66,10 @@ Run `python -m aidm --version` to view the declared application version, **full*
 **Governance:** The Project Owner approved Sprint 1's application target **`v0.1.0` on 18 November 2026**, now recorded in the Sprint Plan's approval addendum. The authoritative root [`VERSION`](VERSION) contains **`0.1.0`**, without a leading `v`. This is the planned version—not evidence of a published release. Developer checkouts identify as **development** builds regardless of that target.
 
 An optional build-time helper generates a Git-ignored manifest against the final clean Git commit so packaged code can identify itself without Git. Only the separate controlled release Story **AIDM-DES-030.2** may approve a release build, tag or GitHub Release. The logger's optional structured JSONL and standard test reports consume the same build identity. See [Version and Runtime Build Identity](docs/VERSIONING.md) for usage and remaining approval/integration tasks.
+
+## Meta Service runtime
+
+AIDM-DES-013.1 provides a local single-process FastAPI/Uvicorn Meta Service with explicit dependency injection and lifecycle; there is no real Dungeon Master, player turn route, or live LLM. Run `python -m pip install -r requirements-dev.txt` then `python -m uvicorn aidm.meta.http:create_app --factory --host 127.0.0.1 --port 8000`, inspect `/health`, `/status` and development `/docs`, and use Ctrl+C to stop gracefully. The factory `from aidm.meta.http import create_app` accepts `settings`, `registry`, and `logger` injected dependencies. `from aidm.meta.runtime import ServiceRegistry` supplies `register(name, service)` and `get(name)` for DAVOS's later `POST /api/turn` (DES-013.2). See [Meta Service Runtime — Bootstrap & Handoff](docs/META_RUNTIME.md). Only loopback binding is approved for the initial demo.
 
 ## Shared internal communication contracts
 
