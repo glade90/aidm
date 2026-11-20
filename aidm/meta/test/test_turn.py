@@ -2,11 +2,12 @@
 
 Usage: python -m pytest aidm/meta/test/test_turn.py -q
 Change Log: 2026-11-20 DAVOS — Functional BUILD/TEST before independent BON UAT.
+            2026-11-20 DAVOS — stabilise timeout fixture on Windows.
 """
 
 from __future__ import annotations
 
-import time
+from threading import Event
 
 from fastapi.testclient import TestClient
 import pytest
@@ -159,24 +160,33 @@ def test_handler_exception_is_sanitised_and_next_turn_works():
 
 
 def test_timeout_is_bounded_without_retries_and_followup_works():
+    # Deliberately block the first read-only fake until *after* HTTP timeout.
+    # A 10ms timer with sleep(80ms) raced with Windows thread scheduling.
+    started, release = Event(), Event()
+
     class SlowOnce:
         count = 0
 
         def __call__(self, request):
             self.count += 1
             if self.count == 1:
-                time.sleep(0.08)  # Read-only fake thread may finish after HTTP timeout.
+                started.set()
+                release.wait(timeout=5)  # Safety backstop if an assertion fails.
             return make_result(request, ResultStatus.COMPLETED, safe_summary="Recovered")
 
     dm = SlowOnce()
-    app = injected(dm, timeout="0.01")
+    app = injected(dm, timeout="0.5")
     with TestClient(app) as client:
-        failed = client.post("/api/turn", json={"message": "hello", "correlation_id": "timeout-cid"})
-        assert failed.status_code == 504
-        assert failed.json()["error"]["code"] == "TIMEOUT"
-        assert failed.json()["correlation_id"] == "timeout-cid"
+        try:
+            failed = client.post("/api/turn", json={"message": "hello", "correlation_id": "timeout-cid"})
+            assert started.is_set(), "First fake invocation must actually begin"
+            assert failed.status_code == 504
+            assert failed.json()["error"]["code"] == "TIMEOUT"
+            assert failed.json()["correlation_id"] == "timeout-cid"
+        finally:
+            release.set()  # Always let the detached, read-only worker finish.
         assert client.post("/api/turn", json={"message": "hello"}).json()["message"] == "Recovered"
-        assert dm.count == 2
+        assert dm.count == 2  # One timed-out call and one recovery; no retries.
         assert client.get("/status").json()["state"] == "READY"
 
 
