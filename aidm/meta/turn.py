@@ -3,20 +3,22 @@
 Purpose: Validate one local player turn and project only player-safe typed outcomes.
 Usage: The Meta create_app factory mounts router at POST /api/turn.
 Change Log: 2026-11-20 DAVOS — AIDM-DES-013.2 initial mock-first vertical slice.
+            2026-11-20 DAVOS — AIDM-DES-025.2 additive typed combat turn/view.
 
-No real DM, tool routing policy, combat mechanics or game state lives here.
+No real combat mechanics or game state lives here. The typed combat view is
+strictly an allowlisted projection; an injected Combat Session owns state.
 """
 
 from __future__ import annotations
 
 import asyncio
 import re
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from aidm.internal_messages import (
     ErrorCode, InternalRequest, InternalResult, ResultStatus, make_request,
@@ -28,20 +30,52 @@ _IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
 router = APIRouter()
 
 
-class TurnRequest(BaseModel):
-    """Only player-facing data; callers cannot claim an internal identity/scope."""
+class CombatTurnIntent(BaseModel):
+    """Additive, player-supplied CLAIMS only; server verifies every token/ID."""
 
     model_config = ConfigDict(extra="forbid")
-    message: str = Field(min_length=1, max_length=4000)
+    kind: Literal["START", "ACTION", "VIEW_LOG"]
+    encounter_id: str | None = None
+    actor_id: str | None = None
+    decision_token: str | None = None
+    expected_encounter_version: int | None = Field(default=None, ge=0)
+    client_action_id: str | None = None
+    log_since_sequence: int | None = Field(default=None, ge=0)
+
+    @field_validator("encounter_id", "actor_id", "decision_token", "client_action_id")
+    @classmethod
+    def safe_combat_identifier(cls, value: str | None) -> str | None:
+        if value is not None and _IDENTIFIER.fullmatch(value) is None:
+            raise ValueError("Invalid combat identifier")
+        return value
+
+    @model_validator(mode="after")
+    def require_action_fields(self):
+        if self.kind == "ACTION" and any(
+            value is None for value in (
+                self.encounter_id, self.actor_id, self.decision_token,
+                self.expected_encounter_version, self.client_action_id,
+            )
+        ):
+            raise ValueError("Combat ACTION requires current decision metadata")
+        if self.kind == "VIEW_LOG" and self.encounter_id is None:
+            raise ValueError("Combat VIEW_LOG requires encounter identifier")
+        return self
+
+
+class TurnRequest(BaseModel):
+    """Existing message-only turns plus optional typed combat intent."""
+
+    model_config = ConfigDict(extra="forbid")
+    message: str | None = Field(default=None, max_length=4000)
     session_id: str | None = None
     correlation_id: str | None = None
+    combat: CombatTurnIntent | None = None
 
     @field_validator("message")
     @classmethod
-    def nonblank_message(cls, value: str) -> str:
-        if not value.strip():
-            raise ValueError("Player message is required")
-        return value.strip()
+    def nonblank_message(cls, value: str | None) -> str | None:
+        return value.strip() if value is not None else None
 
     @field_validator("session_id", "correlation_id")
     @classmethod
@@ -49,6 +83,71 @@ class TurnRequest(BaseModel):
         if value is not None and _IDENTIFIER.fullmatch(value) is None:
             raise ValueError("Invalid identifier")
         return value
+
+    @model_validator(mode="after")
+    def require_text_at_action_time(self):
+        # Preserve strict legacy request validation. START/VIEW_LOG are the
+        # only permitted typed read/initialisation turns without text.
+        if (self.combat is None or self.combat.kind == "ACTION") and not self.message:
+            raise ValueError("Player message required")
+        return self
+
+
+class CombatRollView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    attack_face: int | None = None
+    attack_die_id: str | None = None
+    attack_modifier: int | None = None
+    attack_total: int | None = None
+    damage_face: int | None = None
+    damage_die_id: str | None = None
+    damage_modifier: int | None = None
+    damage_total: int | None = None
+    hit: bool | None = None
+
+
+class CombatLogView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    seq: int = Field(ge=1)
+    round: int = Field(ge=1)
+    phase: str = Field(max_length=80)
+    kind: str = Field(max_length=80)
+    text: str = Field(max_length=1000)
+    roll: CombatRollView | None = None
+
+
+class CombatDecisionView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    actor_id: str
+    prompt: str = Field(max_length=1000)
+    decision_token: str
+    allowed_targets: list[str]
+
+
+class PartyMemberView(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    actor_id: str
+    name: str
+    hp_current: int = Field(ge=0)
+    hp_max: int = Field(ge=0)
+
+
+class PlayerCombatView(BaseModel):
+    """Deliberately narrow public allowlist. No opponent exact HP/AC/secrets."""
+
+    model_config = ConfigDict(extra="forbid")
+    encounter_id: str
+    state_version: int = Field(ge=0)
+    current_round: int = Field(ge=1)
+    phase_label: str = Field(max_length=80)
+    terminal: bool
+    outcome: str | None
+    awaiting_player: bool
+    next_decision: CombatDecisionView | None = None
+    new_log_entries: list[CombatLogView]
+    log_next_cursor: int = Field(ge=0)
+    surviving_party_summary: list[PartyMemberView] | None = None
+    deferred_labels: list[str]
 
 
 class TurnError(BaseModel):
@@ -65,6 +164,7 @@ class TurnResponse(BaseModel):
     simulated: bool = False
     tool_outcome: dict[str, bool] | None = None
     error: TurnError | None = None
+    combat: PlayerCombatView | None = None
 
 
 _FALLBACK = {
@@ -80,6 +180,22 @@ _FALLBACK = {
 def _response(request: InternalRequest, result: InternalResult) -> TurnResponse:
     """Explicit allowlist; never serialize arbitrary result data or event claims."""
     mock = result.status is ResultStatus.COMPLETED and result.data.get("mock") is True
+    combat_view = None
+    raw_view = result.data.get("combat_view")
+    if raw_view is not None:
+        try:
+            combat_view = PlayerCombatView.model_validate(raw_view)
+        except (ValueError, TypeError, ValidationError):
+            # Never forward arbitrary or malformed specialist private data.
+            return TurnResponse(
+                status=ResultStatus.ERROR,
+                message="The combat result could not be safely displayed.",
+                request_id=request.request_id,
+                correlation_id=request.correlation_id,
+                session_id=request.session_id,
+                error=TurnError(code=ErrorCode.INTERNAL_ERROR,
+                                message="The operation could not be completed."),
+            )
     return TurnResponse(
         status=result.status,
         message=result.safe_summary or (result.error.message if result.error else _FALLBACK[result.status]),
@@ -89,6 +205,7 @@ def _response(request: InternalRequest, result: InternalResult) -> TurnResponse:
         simulated=mock,
         tool_outcome={"mock": True} if mock else None,
         error=TurnError(code=result.error.code, message=result.error.message) if result.error else None,
+        combat=combat_view,
     )
 
 
@@ -121,7 +238,11 @@ async def player_turn(payload: TurnRequest, request: Request) -> Any:
     runtime = request.app.state.meta_runtime
     boundary = make_request(
         caller="Meta", capability="dm", operation="player_turn",
-        payload={"message": payload.message},
+        payload={
+            "message": payload.message if payload.message is not None else "",
+            **({"combat": payload.combat.model_dump(mode="json", exclude_none=True)}
+               if payload.combat is not None else {}),
+        },
         correlation_id=payload.correlation_id,
         session_id=payload.session_id,
     )
@@ -135,8 +256,9 @@ async def player_turn(payload: TurnRequest, request: Request) -> Any:
         if not callable(handler):
             return _json(boundary, safe_failure(boundary, ErrorCode.DEPENDENCY_UNAVAILABLE))
         try:
-            # Thread offload keeps the ASGI event loop responsive. The demo is
-            # read-only: a timed-out thread must never own real world-state writes.
+            # Thread offload keeps ASGI responsive. State-changing combat work
+            # may CONTINUE after timeout: no rollback/retry is implied. Clients
+            # must VIEW_LOG before reissuing a potentially completed action.
             result = await asyncio.wait_for(
                 asyncio.to_thread(safe_call, boundary, handler, supported_operations=("player_turn",)),
                 timeout=runtime.settings.request_timeout_seconds,
