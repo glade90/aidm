@@ -54,7 +54,7 @@ class ScriptedIntentPolicy:
         text = player_text.strip().casefold()
         if text in ("hold", "wait", "pass", "stand firm", "skip", "defend"):
             return "HOLD", None
-        if re.search(r"\\b(cast|spell|shoot|bow|arrow|move|run|retreat|switch|equip|draw|morale)\\b", text):
+        if re.search(r"\b(cast|spell|shoot|bow|arrow|move|run|retreat|switch|equip|draw|morale)\b", text):
             return "UNSUPPORTED_RULE", None
         if not re.search(r"\b(attack|attacks|hit|strike|swing|slash|flail)\b", text):
             return "NEEDS_CLARIFICATION", None
