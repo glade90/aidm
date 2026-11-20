@@ -98,3 +98,5 @@ button:disabled { background: #a7b1b1; cursor: progress; }
 .combat-board ol { margin: 0; padding-left: 20px; font-size: .83rem; }
 .combat-board li { padding: 3px 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 .party-outcome { font-size: .83rem; font-weight: 650; margin: 8px 0 0; white-space: pre-wrap; }
+.party-status { font-size: .83rem; font-weight: 600; margin: 4px 0 10px; padding: 7px 10px; border: 1px solid #d4d9db; border-radius: 6px; overflow-wrap: anywhere; }
+
