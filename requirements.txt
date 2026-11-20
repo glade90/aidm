@@ -1,0 +1,5 @@
+# Purpose: Pinned AIDM thin local HTTP adapter runtime dependencies.
+# Usage: python -m pip install -r requirements.txt
+# Change Log: 2026-11-20 COSTA — AIDM-DES-013.1 FastAPI/Uvicorn local runtime.
+fastapi==0.128.2
+uvicorn==0.48.0
