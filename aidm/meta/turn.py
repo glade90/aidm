@@ -216,10 +216,11 @@ def _http_status(result: InternalResult) -> int:
 
 
 def _json(request: InternalRequest, result: InternalResult, *, status_code: int | None = None) -> JSONResponse:
-    return JSONResponse(
-        status_code=_http_status(result) if status_code is None else status_code,
-        content=_response(request, result).model_dump(mode="json"),
-    )
+    public = _response(request, result)
+    code = _http_status(result) if status_code is None else status_code
+    if public.status is ResultStatus.ERROR and result.status is not ResultStatus.ERROR:
+        code = 503  # A malformed proposed public combat view failed projection.
+    return JSONResponse(status_code=code, content=public.model_dump(mode="json"))
 
 
 async def turn_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
