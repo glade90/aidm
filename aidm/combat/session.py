@@ -54,6 +54,8 @@ class ScriptedIntentPolicy:
         text = player_text.strip().casefold()
         if text in ("hold", "wait", "pass", "stand firm", "skip", "defend"):
             return "HOLD", None
+        if re.search(r"\\b(cast|spell|shoot|bow|arrow|move|run|retreat|switch|equip|draw|morale)\\b", text):
+            return "UNSUPPORTED_RULE", None
         if not re.search(r"\b(attack|attacks|hit|strike|swing|slash|flail)\b", text):
             return "NEEDS_CLARIFICATION", None
         targeted = []
@@ -196,6 +198,9 @@ class CombatSessionService:
         except Exception:
             return self._result(request, current, body, error_code=ErrorCode.DEPENDENCY_UNAVAILABLE,
                                 status=ResultStatus.ERROR, read_only=True)
+        if action == "UNSUPPORTED_RULE":
+            return self._result(request, current, body, error_code=ErrorCode.UNSUPPORTED_RULE,
+                                status=ResultStatus.NEEDS_RULING, read_only=True)
         if action not in ("HOLD", "ATTACK_MELEE"):
             return self._result(request, current, body, error_code=ErrorCode.INVALID_INPUT,
                                 status=ResultStatus.NEEDS_PLAYER_INPUT, read_only=True)
@@ -216,7 +221,11 @@ class CombatSessionService:
                                 status=ResultStatus.ERROR, read_only=True)
         current.seen_actions.add(action_id)
         self._advance(current)
-        return self._result(request, current, body, message="Combat action accepted.")
+        return self._result(
+            request, current, body,
+            message=(f"Combat ended: {engine.outcome}." if engine.outcome
+                     else "Combat action accepted."),
+        )
 
     def _advance(self, active: _ActiveEncounter) -> None:
         """Resolve scripted retainer/monsters until next human or terminal.
