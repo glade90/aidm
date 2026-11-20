@@ -46,6 +46,34 @@ test("only /api/turn is called; original text, stable session, distinct correlat
   ]);
 });
 
+test("default browser fetch retains native global receiver and sends POST", async () => {
+  // Real browser Window.fetch may reject an arbitrary this receiver with
+  // TypeError: Illegal invocation. Our other tests injected arrow functions,
+  // which failed to detect that production-only bug.
+  const original = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = function (url, options) {
+    assert.equal(this, globalThis, "fetch must be called on the global receiver");
+    const body = JSON.parse(options.body);
+    requests.push({ url, options, body });
+    return Promise.resolve(reply({
+      session: body.session_id, correlation: body.correlation_id,
+    }));
+  };
+  try {
+    const client = new ChatApiClient({ idFactory: ids() }); // DEFAULT fetcher
+    const result = await client.send("I swing my sword at the orc.");
+    assert.equal(result.status, "COMPLETED");
+    assert.equal(result.simulated, true);
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].url, "/api/turn");
+    assert.equal(requests[0].options.method, "POST");
+    assert.equal(requests[0].body.message, "I swing my sword at the orc.");
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
 test("blank input gives clarification and does not call network", async () => {
   const client = new ChatApiClient({
     fetcher: () => { throw new Error("SHOULD_NOT_FETCH"); },
