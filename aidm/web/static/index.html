@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>AIDM — Local Chat Prototype</title>
+  <link rel="stylesheet" href="/static/chat.css">
+  <script type="module" src="/static/chat.mjs"></script>
+</head>
+<body>
+  <main class="chat-app" aria-labelledby="app-title">
+    <header class="chat-header">
+      <div>
+        <p class="eyebrow">THE GOLDEN BRAID · AIDM</p>
+        <h1 id="app-title">Dungeon Master</h1>
+        <p class="subtitle">Local chat prototype · simulated encounter only</p>
+      </div>
+      <div class="connection" aria-live="polite">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span id="service-status" role="status">Ready to send</span>
+      </div>
+    </header>
+
+    <section class="chat-panel" aria-label="Chat conversation">
+      <ol id="transcript" class="transcript" role="log"
+          aria-label="Player and Dungeon Master messages"
+          aria-live="polite" aria-relevant="additions">
+        <li class="message message--system">
+          <span class="speaker">Prototype notice</span>
+          <p>Only the scripted combat example is supported. No dice, damage,
+             hit points or game state are changed.</p>
+        </li>
+      </ol>
+    </section>
+
+    <form id="chat-form" class="chat-composer">
+      <label for="player-message">Your message</label>
+      <div class="composer-controls">
+        <textarea id="player-message" name="message" rows="2" maxlength="4000"
+                  placeholder="I swing my sword at the orc."
+                  aria-describedby="input-help" required></textarea>
+        <button id="send-button" type="submit">Send</button>
+      </div>
+      <p id="input-help" class="help">Enter to send · Shift+Enter for a new line</p>
+    </form>
+  </main>
+</body>
+</html>
