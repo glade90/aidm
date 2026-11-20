@@ -1,10 +1,10 @@
 # AIDM deterministic combat controller — AIDM-DES-001.2
 
 **Document ID:** AIDM-CMB-ENGINE-001  
-**Status:** **DRAFT IMPLEMENTATION — BLOCKED ON BON DES-001.1 DESIGN SIGNOFF**  
+**Status:** **DRAFT PR — FUNCTIONAL BUILD / BON UAT HANDOFF (separate Design UAT is nonblocking)**  
 **Owner:** COSTA  
 **Date:** 20 November 2026  
-**Governing design:** OneNote *AIDM — Mentzer Combat Sequence Design*, AIDM-CMB-SEQ-001 §§7–14. The design currently remains in **UAT Testing**, not Complete. These prototype tests do not constitute formal design acceptance, a production Bookkeeper, or a complete Mentzer Basic rules implementation.
+**Governing design:** OneNote *AIDM — Mentzer Combat Sequence Design*, AIDM-CMB-SEQ-001 §§7–14. The separate Design Story may still be in **UAT Testing**. Its workflow is **not a blocker on COSTA development**. This Functional Build proceeds to BON independent UAT once developer tests and integration are ready; prototype unit tests do not constitute functional UAT, Bookkeeper persistence, or complete Mentzer Basic rule coverage.
 
 ## 1. First-slice scope and source references
 
@@ -65,7 +65,7 @@ This is only a small source-injected example; normal full combat requires the ag
 
 - **No surprise:** first `next_decision()` consumes one selected d6 for **each side**, higher side acts first.
 - **Party or opponent surprises:** exactly one opening side round, *no initiative dice in that opening*, then normal side initiative from following round.
-- **Tie:** logged as **simultaneous** and `NEEDS_RULING`; it does **not** select an arbitrary sequential side or claim to implement the simultaneous damage algorithm. This is a **known incomplete G03 path** pending BON's approved tie procedure.
+- **Tie:** both sides' eligible intents/rolls are collected under a shared simultaneous round, then **all damage is applied together** after both sides complete. A combatant initially alive still attacks if the opposing side would kill it in the same exchange. Neither side wins initiative and no extra tie-break die is drawn. Journal includes `SIMULTANEOUS_EXCHANGE_STARTED`, `SIMULTANEOUS_ACTION_STAGED`, individual resolved actions and `SIMULTANEOUS_EXCHANGE_COMMITTED` with the single HP batch and source rule ID. No additional morale/missile/magic functionality is implied.
 - **Canonical real melee:** fixed d20=12 with Evro STR18 +3 yields modified attack 15, which hits an orc AC6 in the limited level-one source table (needed 14); fixed d8=5 and +3 yields **8 damage**, capped to zero remaining HP. Both dice remain raw, with independent IDs/provenance.
 - **Flail overlay:** on a legal fixed hit, Alho d6=4 deals 4; without named overlay the weapon is unsupported and consumes no attack/damage roll. The same historical character fixture stays unchanged.
 - **Two-round win:** six combatants with distinct controller type, two side-initiative contests and fixed melee; exact final HP `[8,8,9,0,0,0]`, terminal party victory with no fake morale/magic/missile checks.
@@ -74,8 +74,8 @@ This is only a small source-injected example; normal full combat requires the ag
 
 ## 4. Known limitations and separately owned commitments
 
-1. **BON 001.1 approval remains outstanding.** This is a Draft branch candidate; do not merge or declare Build acceptance before the formally approved combat procedure and any ALEK scope/capacity adjustments.
-2. **Simultaneous initiative tie is an explicit safe halt**, not full source-verified simultaneous damage, and an enabled due morale check also halts. Their complete rule procedures require approved designs/implementation (including 001.5 for actual morale).
+1. **Independent design workflow:** BON 001.1 Design testing proceeds independently and must not stall COSTA's implementation. This is a Draft PR pending clean PEQUOD whole-repository tests and Owner integration approval. As a **Functional Build**, 001.2 is handed to **BON UAT Testing** (joint end-to-end UAT with DAVOS 025.2 in Iteration 2.4); only BON's accepted functional evidence and Owner-confirmed actual time permit Complete/ALEK.
+2. **Tied initiative is now implemented for the supported stationary melee subset** through deferred simultaneous damage and single final HP commitment (including mutual casualties). Enabled due morale still halts without a fabricated 2d6 result; more advanced simultaneous missile/spell/movement/specials require their own supported implementations (including 001.5 for morale).
 3. **Missing fixed damage after a successful d20:** the accepted DES-005.2 source consumes a d20 before knowing whether damage is needed. If the conditional damage die is then exhausted, the controller leaves HP/version/journal unchanged, but **the fixed queue's d20 was consumed**. A future *transactional conditional dice source reservation* is needed for fully atomic retry of that edge. No false claim of strict cursor atomicity for this new cross-roll operation.
 4. **No persistent truth:** working HP and journal are in memory until explicitly exporting a local JSONL; the authoritative Bookkeeper DES-017, persistent event store DES-007, structured rule repository DES-003 and future Adventure/Expedition DB do not exist here. A JSONL file is a local diagnostic artifact, **not** an authoritative event commit or recovery system.
 5. **No Geometry Engine:** the current fixture relies solely on authored `MeleeEligibility` pairs. Movement, range, obscure targeting, reach, special/monster powers, changes to equipment, missile and spells remain unsupported. Deferring a due action is a block, not a simulated PASS.
@@ -90,4 +90,4 @@ Broader offline checks: `python -m pytest aidm/combat/test/test_engine.py aidm/c
 
 Final complete PEQUOD evidence must be collected with **`python -m aidm.test_runner`** at the *exact* Draft PR head and clean working tree, preserving run ID, full SHA, all pytest/JUnit outcomes and enforced Python ≥90% coverage. No GitHub CI, browser test or BON Functional UAT is implied by local focused runs.
 
-**Change history:** 2026-11-20 COSTA — Draft first-slice controller, bounded data seam, deterministic replay/safety tests; intentionally blocked on BON approved DES-001.1 and review of limitations above.
+**Change history:** 2026-11-20 COSTA — Draft first-slice controller, bounded data seam, deterministic replay/safety tests. 2026-11-20 COSTA — Owner requested true simultaneous tied initiative and corrected Functional Story routing to BON UAT; design work independent, developer integration and UAT evidence still pending.
