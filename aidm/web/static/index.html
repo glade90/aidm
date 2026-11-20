@@ -22,6 +22,12 @@
       </div>
     </header>
 
+    <nav class="combat-actions" aria-label="Combat prototype controls">
+      <button id="combat-start" type="button">Start 3 vs 3 combat</button>
+      <button id="combat-log" type="button" disabled>View full combat log</button>
+      <span id="combat-status" role="status">No encounter started</span>
+    </nav>
+
     <section class="chat-panel" aria-label="Chat conversation">
       <ol id="transcript" class="transcript" role="log"
           aria-label="Player and Dungeon Master messages"
@@ -32,6 +38,12 @@
              hit points or game state are changed.</p>
         </li>
       </ol>
+    </section>
+
+    <section id="combat-board" class="combat-board" aria-label="Player-safe combat journal" hidden>
+      <h2>Combat journal</h2>
+      <ol id="combat-events" aria-live="polite" aria-relevant="additions"></ol>
+      <p id="party-outcome" class="party-outcome"></p>
     </section>
 
     <form id="chat-form" class="chat-composer">
