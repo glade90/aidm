@@ -1,21 +1,20 @@
-"""AIDM combat specialist contracts, not an authoritative combat engine.
+"""AIDM combat specialist contracts and rules-neutral raw dice.
 
-Usage: from aidm.combat import CombatAgent, DiceRoller, FixedRollSource
-Change Log: 2026-11-20 COSTA — AIDM-DES-004.1 first stub.
-            2026-11-20 COSTA — AIDM-DES-005.2 typed dice exports.
+Usage: from aidm.combat import CombatAgent, Die, DiceRoller, RawDieResult
+Change Log: 2026-11-20 COSTA — AIDM-DES-004.1 initial combat stub.
+            2026-11-20 COSTA — AIDM-DES-005.2 raw dice architecture correction.
 """
 
 from .agent import CombatAgent, MOCK_COMBAT_OPERATION
 from .dice import (
-    DiceRoller, DieResult, FixedRollOutOfRange, FixedRollSource, FixedRollsExhausted,
-    InvalidDiceRequest, InvalidRollSource, RollRequest, RollResult, RollSource,
-    RollSourceKind, SourceFace, SystemRandomSource, parse_dice_expression,
+    Die, DiceRoller, FixedRollOutOfRange, FixedRollSource, FixedRollsExhausted,
+    InvalidDiceRequest, InvalidRollSource, RawDieResult, RollSource,
+    RollSourceKind, SourceFace, SystemRandomSource,
 )
 
 __all__ = [
-    "CombatAgent", "MOCK_COMBAT_OPERATION", "DiceRoller", "DieResult",
+    "CombatAgent", "MOCK_COMBAT_OPERATION", "Die", "DiceRoller",
     "FixedRollOutOfRange", "FixedRollSource", "FixedRollsExhausted",
-    "InvalidDiceRequest", "InvalidRollSource", "RollRequest", "RollResult",
+    "InvalidDiceRequest", "InvalidRollSource", "RawDieResult",
     "RollSource", "RollSourceKind", "SourceFace", "SystemRandomSource",
-    "parse_dice_expression",
 ]
