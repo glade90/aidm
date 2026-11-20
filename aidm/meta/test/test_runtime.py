@@ -200,6 +200,7 @@ def test_failed_logger_start_is_safely_reported(settings):
     assert "SECRET_TOKEN_VALUE" not in str(exc.value)
     assert not m.ready
     assert m.state is LifecycleState.FAILED
+    assert logger.closed == 1
 
 
 def test_failed_stop_still_closes_everything(settings):
