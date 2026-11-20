@@ -66,6 +66,10 @@ def parse_dice_expression(expression: str) -> tuple[int, int, int]:
     """Strict dS/NdS±M parser; no arithmetic evaluator or rules decision."""
     if not isinstance(expression, str):
         raise InvalidDiceRequest("Invalid dice expression")
+    # Bound work before integer conversion; very long numerals otherwise raise
+    # an implementation-specific ValueError instead of our typed error.
+    if len(expression) > 64:
+        raise InvalidDiceRequest("Dice expression exceeds length limit")
     match = _DICE.fullmatch(expression.strip())
     if match is None:
         raise InvalidDiceRequest("Unsupported dice expression")
