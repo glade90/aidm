@@ -397,7 +397,8 @@ def test_export_jsonl_is_chronological_safe_nonoverwriting_and_exactly_replayabl
     a=run();b=run()
     assert [asdict(x) for x in a.journal()]==[asdict(x) for x in b.journal()]
     path=a.export_jsonl(tmp_path,name="round01")
-    assert str(path).endswith("reports/combat-logs/round01.jsonl")
+    # Compare Path objects rather than POSIX separators: Windows uses backslashes.
+    assert path == tmp_path.resolve() / "reports" / "combat-logs" / "round01.jsonl"
     lines=[json.loads(x) for x in path.read_text().splitlines()]
     assert len(lines)==len(a.journal()) and [x["seq"] for x in lines]==list(range(1,len(lines)+1))
     resolved=next(x for x in lines if x["kind"]=="MELEE_RESOLVED")
