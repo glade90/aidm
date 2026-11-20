@@ -193,6 +193,91 @@ def test_two_real_rounds_roll_math_human_handoff_and_terminal_in_browser_api():
         assert sources[0].cursor == len(WIN_FACES)
 
 
+@pytest.mark.parametrize("text, expected_target", [
+    ("Orc 1", "orc-01"),
+    ("1", "orc-01"),
+    ("Orc 2", "orc-02"),
+    ("2", "orc-02"),
+    ("Orc 3", "orc-03"),
+    ("3", "orc-03"),
+    ("orc-01", "orc-01"),
+    (" ORC 2 ", "orc-02"),
+])
+def test_offline_target_shorthand_only_uses_pending_visible_target(text, expected_target):
+    policy = ScriptedIntentPolicy()
+    action, target = policy.propose(
+        player_text=text, actor_id="alho",
+        allowed_targets=("orc-01", "orc-02", "orc-03"),
+    )
+    assert action == "ATTACK_MELEE"
+    assert target == expected_target
+
+
+@pytest.mark.parametrize("text", [
+    "Orc 4", "4", "99", "Orc 99", "Orc 1 or Orc 2", "1 and 2",
+    "all the orcs", "orc",
+])
+def test_offline_shorthand_ambiguous_or_unlisted_target_fails_closed(text):
+    action, target = ScriptedIntentPolicy().propose(
+        player_text=text, actor_id="alho",
+        allowed_targets=("orc-01", "orc-02", "orc-03"),
+    )
+    assert (action, target) == ("NEEDS_CLARIFICATION", None)
+
+
+def test_shorthand_is_a_real_combat_action_and_dm_describes_outcome():
+    app, service, sources = make_app()
+    with TestClient(app) as client:
+        first = start(client)["combat"]
+        answer = act(client, first, "Orc 1", action_id="short-answer-1")
+        assert answer["status"] == "NEEDS_PLAYER_INPUT"
+        assert answer["combat"]["next_decision"]["actor_id"] == "sho-rembo"
+        assert answer["combat"]["state_version"] == 2  # Alho then Evro
+        assert sources[0].cursor == 4  # 2 initiative + two misses
+        assert "Alho misses Orc 1" in answer["message"]
+        assert "Evro misses Orc 1" in answer["message"]
+        assert "Combat action accepted" not in answer["message"]
+        assert "Sho-Rembo" in answer["message"]
+
+
+def test_initiative_can_incapacitate_evro_before_his_action_and_dm_reports_it():
+    # Mirrors the real PEQUOD browser report: Orc 1 does six damage, Orc 2
+    # misses, Orc 3 does three; Evro began with eight HP and cannot attack.
+    faces = (2, 6, 19, 6, 11, 17, 3)
+    app, service, sources = make_app(faces=faces)
+    with TestClient(app) as client:
+        started = start(client)
+        assert started["status"] == "NEEDS_PLAYER_INPUT"
+        view = started["combat"]
+        assert view["next_decision"]["actor_id"] == "alho"
+        assert service._sessions["s1"].engine.snapshot()["hp"]["evro"] == 0
+        evro = next(x for x in view["party_status"] if x["actor_id"] == "evro")
+        assert (evro["hp_current"], evro["hp_max"]) == (0, 8)
+        assert "Orc 1 hits Evro for 6 damage" in started["message"]
+        assert "Orc 3 hits Evro for 3 damage" in started["message"]
+        assert "Evro falls" in started["message"]
+        assert any("Evro falls" in e["text"]
+                   for e in view["new_log_entries"])
+        assert not any(e["actor_id"] == "evro" and e["kind"] == "MELEE_RESOLVED"
+                       for e in service._sessions["s1"].engine.journal())
+        assert sources[0].cursor == len(faces)
+        assert "defender_ac" not in json.dumps(started)
+        assert "hp_before" not in json.dumps(started)
+
+
+def test_invalid_short_target_explains_error_without_consuming_die():
+    app, service, sources = make_app()
+    with TestClient(app) as client:
+        first = start(client)["combat"]
+        bad = act(client, first, "Orc 99", action_id="invalid-short")
+        assert bad["status"] == "NEEDS_PLAYER_INPUT"
+        assert "couldn't identify a single legal target" in bad["message"]
+        assert "Orc 1" in bad["message"]
+        assert bad["combat"]["state_version"] == 0
+        assert sources[0].cursor == 2
+        assert service._sessions["s1"].engine.snapshot()["hp"]["orc-01"] == 6
+
+
 def test_bad_actor_target_token_and_duplicate_action_never_roll():
     app, service, sources = make_app()
     with TestClient(app) as client:
