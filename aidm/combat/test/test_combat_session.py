@@ -307,7 +307,7 @@ def test_full_two_round_fake_llm_interprets_humans_and_narrates_without_rules_po
 
         def propose(self, *, player_text, actor_id, allowed_targets):
             self.inputs.append((actor_id, player_text, allowed_targets))
-            if "stand ready" in player_text.lower() or "shield up" in player_text.lower():
+            if any(phrase in player_text.lower() for phrase in ("stand ready", "stands ready", "shield up")):
                 return "HOLD", None
             if actor_id == "alho" and "second orc" in player_text.lower():
                 return "ATTACK_MELEE", "orc-02"
