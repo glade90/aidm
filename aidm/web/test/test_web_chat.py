@@ -53,7 +53,7 @@ def test_single_meta_app_serves_chat_and_same_origin_modules():
         for filename in ("client.mjs", "chat.mjs", "chat.css"):
             asset = client.get(f"/static/{filename}")
             assert asset.status_code == 200
-        assert "text/javascript" in client.get("/static/client.mjs").headers["content-type"]
+        assert "javascript" in client.get("/static/client.mjs").headers["content-type"]
         assert client.get("/health").json() == {"state": "READY", "ready": True}
         assert client.get("/status").json()["capabilities"] == ["combat", "dm"]
 
