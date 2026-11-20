@@ -36,6 +36,7 @@ export class ChatApiClient {
     // not mint or persist one. Never claim this is authoritative game memory.
     this.sessionId = sessionId ?? this.idFactory("session");
     this.combatState = null;
+    this.actionUncertain = false; // Must inspect trusted state before retry.
   }
 
   async startCombat() {
@@ -49,14 +50,25 @@ export class ChatApiClient {
         combat: null, simulated: false,
       };
     }
-    return this._send("", {
+    const result = await this._send("", {
       kind: "VIEW_LOG", encounter_id: this.combatState.encounter_id,
       log_since_sequence: 0,
     });
+    if (result.combat && result.status !== "ERROR") {
+      this.actionUncertain = false;
+    }
+    return result;
   }
 
   async send(message) {
     if (!this.combatState) return this._send(message, null);
+    if (this.actionUncertain) {
+      return {
+        status: "BLOCKED",
+        message: "A previous combat outcome may still be completing. View the full combat log before another action.",
+        combat: null, simulated: false,
+      };
+    }
     if (this.combatState.terminal) {
       return {
         status: "BLOCKED", message: "Combat has ended. View the log for the outcome.",
@@ -70,7 +82,7 @@ export class ChatApiClient {
         combat: this.combatState, simulated: false,
       };
     }
-    return this._send(message, {
+    const result = await this._send(message, {
       kind: "ACTION",
       encounter_id: this.combatState.encounter_id,
       actor_id: decision.actor_id,
@@ -79,6 +91,8 @@ export class ChatApiClient {
       client_action_id: this.idFactory("action"),
       log_since_sequence: this.combatState.log_next_cursor,
     });
+    if (result.status === "ERROR") this.actionUncertain = true;
+    return result;
   }
 
   async _send(message, combat) {
