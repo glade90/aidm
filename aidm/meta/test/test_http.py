@@ -105,7 +105,7 @@ def test_external_pydantic_health_schema_with_docs():
         schema = client.get("/openapi.json").json()
         assert "/health" in schema["paths"]
         assert "/status" in schema["paths"]
-        assert "/api/turn" not in schema["paths"]
+        assert "/api/turn" in schema["paths"]
         assert "HealthResponse" in schema["components"]["schemas"]
         assert "StatusResponse" in schema["components"]["schemas"]
 
@@ -134,10 +134,12 @@ def test_registry_supports_davos_injected_dm_dispatcher():
         assert client.get("/status").json()["capabilities"] == ["dispatcher", "dm", "mock_tool"]
 
 
-def test_factory_has_no_turn_endpoint_and_no_routing_policy():
+def test_factory_turn_route_requires_injected_dm_and_no_routing_policy():
     app = create_app(settings("test"), logger=FakeLogger())
     with TestClient(app) as client:
-        assert client.post("/api/turn", json={"message": "attack"}).status_code == 404
+        response = client.post("/api/turn", json={"message": "attack"})
+        assert response.status_code == 503
+        assert response.json()["error"]["code"] == "DEPENDENCY_UNAVAILABLE"
         assert client.get("/health").json()["ready"] is True
 
 
