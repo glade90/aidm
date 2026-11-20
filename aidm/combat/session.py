@@ -291,6 +291,10 @@ class CombatSessionService:
         private event details or raw unrestricted serialisation.
         """
         events = engine.journal()
+        player_ids = {
+            a.encounter_actor_id: a.display_name
+            for a in engine.definition.party.members
+        }
         allowed = []
         for e in events:
             if e.seq <= after:
@@ -305,10 +309,16 @@ class CombatSessionService:
             elif e.kind == "INTENT_REQUIRED":
                 # Do not reveal hidden NPC plans as the log grows.
                 if e.details.get("controller") == Controller.HUMAN.value:
-                    text = f"{e.actor_id} awaits the player's decision"
+                    text = f"{player_ids.get(e.actor_id, e.actor_id)} awaits a decision"
             elif e.kind == "MELEE_RESOLVED" and text is not None:
                 d = e.details
                 raw_attack, raw_damage = d.get("hit_roll"), d.get("damage_roll")
+                # Own party casualties are player-observable, including when
+                # enemy initiative incapacitates the retainer before his turn.
+                # Never display a creature's exact HP in this projection.
+                target_id = d.get("target_id")
+                if target_id in player_ids and d.get("hp_after") == 0 and d.get("hp_before", 0) > 0:
+                    text += f". {player_ids[target_id]} falls"
                 roll = {
                     "attack_face": raw_attack["face"] if raw_attack else None,
                     "attack_die_id": raw_attack["die_id"] if raw_attack else None,
@@ -360,7 +370,7 @@ class CombatSessionService:
                 "actor_id": pending.actor_id, "prompt": (
                     f"{visible.get(pending.actor_id, pending.actor_id)}: "
                     f"choose a melee attack target ({', '.join(target_labels)}) "
-                    "or say HOLD."
+                    "by name or number, or say HOLD."
                 ),
                 "decision_token": pending.token,
                 "allowed_targets": list(pending.allowed_targets),
@@ -383,6 +393,7 @@ class CombatSessionService:
             "next_decision": next_prompt,
             "new_log_entries": public_log,
             "log_next_cursor": last_seq,
+            "party_status": party,  # Owner-visible HP during the encounter.
             "surviving_party_summary": party if engine.outcome else None,
             "deferred_labels": ["Missile and magic not resolved",
                                 "Movement limited to stationary scenario",
@@ -390,16 +401,44 @@ class CombatSessionService:
         }
         if error_code is None and status is ResultStatus.NEEDS_RULING:
             error_code = ErrorCode.UNSUPPORTED_RULE
-        if message:
-            summary = message
-        elif next_prompt:
-            summary = next_prompt["prompt"]
-        elif engine.outcome:
-            summary = f"Combat ended: {engine.outcome}."
-        else:
-            summary = "The combat decision needs clarification or a rules ruling."
         if status is ResultStatus.ERROR:
             summary = "Combat result is uncertain; inspect the current log before any retry."
+        elif error_code is ErrorCode.INVALID_INPUT:
+            summary = (
+                "I couldn't identify a single legal target. Reply with its name "
+                "(such as Orc 1), its number (1), or HOLD."
+            )
+        elif error_code is ErrorCode.STATE_VERSION_CONFLICT:
+            summary = "That combat decision is no longer current; inspect the combat log."
+        elif error_code is ErrorCode.UNSUPPORTED_RULE and status is ResultStatus.NEEDS_RULING:
+            summary = "That action needs a rules ruling; I cannot resolve it as written."
+        elif status is ResultStatus.BLOCKED:
+            summary = message or "That action is blocked."
+        elif read_only:
+            summary = message or "Combat journal retrieved."
+        else:
+            # A DM must report VERIFIED in-world events, not 'action accepted'.
+            # Raw dice and phases remain in the separate complete audit log.
+            lines = []
+            if message and message != "Combat action accepted.":
+                lines.append(message)
+            notable = [
+                event["text"] for event in public_log
+                if event["kind"] in (
+                    "MELEE_RESOLVED", "ACTION_HELD", "ROUND_COMPLETED",
+                    "ENCOUNTER_TERMINAL", "SIMULTANEOUS_EXCHANGE_COMMITTED",
+                )
+            ]
+            if notable:
+                lines.append(" ".join(f"{part}." for part in notable[-8:]))
+            if engine.outcome and not any(engine.outcome in line for line in lines):
+                lines.append(f"Combat ended: {engine.outcome}.")
+            if not lines and not next_prompt:
+                lines.append("The combat controller requires a ruling.")
+            summary = "\n\n".join(lines)
+        if next_prompt and (status is ResultStatus.NEEDS_PLAYER_INPUT
+                            or (error_code is not None and status is not ResultStatus.ERROR)):
+            summary = (summary + "\n\n" if summary else "") + next_prompt["prompt"]
         if not read_only and status in (ResultStatus.NEEDS_PLAYER_INPUT, ResultStatus.COMPLETED):
             narratable = tuple(e["text"] for e in public_log[-3:])
             if narratable:
