@@ -189,6 +189,8 @@ class CombatEngine:
         self._blocked_reason: str | None = None
         self._opening = surprise.kind is SurpriseKind.SURPRISING_SIDE
         self._round_started = False
+        self._simultaneous = False
+        self._simultaneous_effects: list[dict[str, Any]] = []
         self._morale_triggers: set[tuple[str, str]] = set()
         self._lock = RLock()
         self._append(Phase.PRE_INITIATIVE, "SURPRISE_INPUT_ACCEPTED", None, None,
@@ -227,6 +229,7 @@ class CombatEngine:
             return {"encounter_id": self.definition.encounter_id, "session_id": self.session_id,
                     "version": self._version, "round_index": self._round,
                     "hp": dict(self._hp), "outcome": self._outcome,
+                    "simultaneous_exchange_pending": self._simultaneous,
                     "pending_actor": self._pending.actor_id if self._pending else None,
                     "status": self.status().value,
                     "rules_profile_ref": self.profile.profile_id,
@@ -290,14 +293,16 @@ class CombatEngine:
                           "rule_id": "CMB-INIT-MENTZER-1983"},
                          f"Round {self._round}: side initiative rolled")
             if raw[0].face == raw[1].face:
-                # Fail closed rather than wrongly giving sequential turns;
-                # a verified simultaneous-action engine is separate work.
-                self._blocked_reason = "Simultaneous initiative tie requires source-verified resolution"
-                self._append(Phase.INITIATIVE, "TIED_INITIATIVE_UNSUPPORTED", None, None,
-                             {"status": "NEEDS_RULING", "simultaneous": True})
-                self._round_started = True
-                return
-            order = [sides[0].side_id, sides[1].side_id] if raw[0].face > raw[1].face else [sides[1].side_id, sides[0].side_id]
+                # Intents/rolls are acquired in stable side order for a reproducible
+                # UI cursor, but NO damage or incapacitation takes effect until
+                # BOTH sides have completed the simultaneous exchange.
+                self._simultaneous = True
+                order = [s.side_id for s in sides]
+                self._append(Phase.INITIATIVE, "SIMULTANEOUS_EXCHANGE_STARTED", None, None,
+                             {"simultaneous": True, "sides": order,
+                              "rule_id": "CMB-INIT-MENTZER-1983", "no_side_wins": True})
+            else:
+                order = [sides[0].side_id, sides[1].side_id] if raw[0].face > raw[1].face else [sides[1].side_id, sides[0].side_id]
         self._side_order = order
         self._side_index = 0
         self._round_started = True
@@ -345,6 +350,63 @@ class CombatEngine:
         self._queue_index = 0
         self._side_order = []
         self._side_index = 0
+        self._simultaneous = False
+        self._simultaneous_effects = []
+
+    def _resolve_simultaneous(self) -> None:
+        """Apply all valid tied-side actions against a single pre-effect HP state.
+
+        Stable decision acquisition order is NOT a combat initiative order.
+        A combatant alive when the exchange began gets its eligible attack even
+        if the other side's staged attack would incapacitate it. All HP deltas
+        commit together after both sides have supplied their commands.
+        """
+        if not self._simultaneous:
+            return
+        effects = self._simultaneous_effects
+        start_hp = dict(self._hp)
+        totals: dict[str, int] = {}
+        for effect in effects:
+            if effect["kind"] == "ATTACK_MELEE":
+                target = effect["target_id"]
+                totals[target] = totals.get(target, 0) + effect["damage"]
+        after_hp = dict(start_hp)
+        for target, damage in totals.items():
+            after_hp[target] = max(0, start_hp[target] - damage)
+        before_version = self._version
+        self._version += 1
+        self._hp = after_hp
+        for effect in effects:
+            actor_id = effect["actor_id"]
+            actor = self._actors[actor_id]
+            if effect["kind"] == "ATTACK_MELEE":
+                target = effect["target_id"]
+                details = dict(effect["details"])
+                details.update(hp_before=start_hp[target], hp_after=after_hp[target],
+                               simultaneous=True, aggregate_damage=totals[target],
+                               resolution="ONE_SIMULTANEOUS_HP_COMMIT")
+                self._append(Phase.MELEE, "MELEE_RESOLVED", actor.side_id, actor_id,
+                             details, effect["public_message"], before=before_version)
+            else:
+                self._append(Phase.MELEE, "ACTION_HELD", actor.side_id, actor_id,
+                             {"command_id": effect["command_id"], "status": "NO_ATTACK",
+                              "simultaneous": True}, effect["public_message"],
+                             before=before_version)
+        self._append(Phase.MELEE, "SIMULTANEOUS_EXCHANGE_COMMITTED", None, None,
+                     {"simultaneous": True, "action_count": len(effects),
+                      "state_version_before": before_version,
+                      "state_version_after": self._version,
+                      "hp_deltas": {target: after_hp[target] - start_hp[target]
+                                    for target in sorted(totals)},
+                      "all_eligible_actions_resolved": True},
+                     f"Round {self._round} simultaneous exchange resolves",
+                     before=before_version)
+        self._simultaneous = False
+        self._simultaneous_effects = []
+        for actor_id in self._actors:
+            if start_hp[actor_id] > 0 and after_hp[actor_id] == 0:
+                self._morale_after_death(actor_id)
+        # The caller checks the terminal outcome exactly once after this batch.
 
     def next_decision(self) -> Decision | None:
         """Stop at exact actor turn; caller supplies human or agent intent.
@@ -368,6 +430,10 @@ class CombatEngine:
                     if not self._begin_side_turn():
                         if self._blocked_reason:
                             return None
+                        if self._simultaneous:
+                            self._resolve_simultaneous()
+                            if self._blocked_reason:
+                                return None
                         self._check_outcome()
                         if self._outcome:
                             return None
@@ -445,9 +511,20 @@ class CombatEngine:
                 self._version += 1
                 self._processed_ids.add(command.command_id)
                 self._pending = None
-                self._append(Phase.MELEE, "ACTION_HELD", actor.side_id, actor.encounter_actor_id,
-                             {"command_id": command.command_id, "status": "NO_ATTACK"},
-                             f"{actor.display_name} holds position", before=before)
+                if self._simultaneous:
+                    self._simultaneous_effects.append({
+                        "kind": "HOLD", "actor_id": actor.encounter_actor_id,
+                        "command_id": command.command_id,
+                        "public_message": f"{actor.display_name} holds position",
+                    })
+                    self._append(Phase.MELEE, "SIMULTANEOUS_ACTION_STAGED", actor.side_id,
+                                 actor.encounter_actor_id,
+                                 {"command_id": command.command_id, "kind": "HOLD",
+                                  "pending_round_resolution": True}, before=before)
+                else:
+                    self._append(Phase.MELEE, "ACTION_HELD", actor.side_id, actor.encounter_actor_id,
+                                 {"command_id": command.command_id, "status": "NO_ATTACK"},
+                                 f"{actor.display_name} holds position", before=before)
                 return {"kind": "HOLD", "version": self._version}
             if command.target_id not in pending.allowed_targets:
                 raise CombatError("Invalid, unavailable or non-engaged target")
@@ -487,7 +564,8 @@ class CombatEngine:
             before = self._version
             hp_before = self._hp[target.encounter_actor_id]
             hp_after = max(0, hp_before - damage)
-            self._hp[target.encounter_actor_id] = hp_after
+            if not self._simultaneous:
+                self._hp[target.encounter_actor_id] = hp_after
             self._version += 1
             self._processed_ids.add(command.command_id)
             self._pending = None
@@ -515,6 +593,24 @@ class CombatEngine:
                 msg = None
             if target.side_id != self._party and not target.publicly_visible:
                 msg = None
+            if self._simultaneous:
+                # Raw dice and rules arithmetic are complete; HP is held for
+                # the simultaneous batch. Never tell the caller a final HP
+                # state or winner before every eligible combatant can respond.
+                self._simultaneous_effects.append({
+                    "kind": "ATTACK_MELEE", "command_id": command.command_id,
+                    "actor_id": actor.encounter_actor_id,
+                    "target_id": target.encounter_actor_id, "damage": damage,
+                    "details": details, "public_message": msg,
+                })
+                self._append(Phase.MELEE, "SIMULTANEOUS_ACTION_STAGED", actor.side_id,
+                             actor.encounter_actor_id,
+                             {"command_id": command.command_id, "kind": "ATTACK_MELEE",
+                              "target_id": target.encounter_actor_id,
+                              "pending_round_resolution": True}, before=before)
+                return {"kind": "ATTACK_MELEE", "hit": hit, "damage": damage,
+                        "target_id": target.encounter_actor_id, "version": self._version,
+                        "outcome": None, "pending_simultaneous_resolution": True}
             self._append(Phase.MELEE, "MELEE_RESOLVED", actor.side_id,
                          actor.encounter_actor_id, details, msg, before=before)
             if hp_before > 0 and hp_after == 0:
@@ -546,6 +642,7 @@ class CombatEngine:
             return {"encounter_id": self.definition.encounter_id,
                     "session_id": self.session_id, "version": self._version,
                     "round_index": self._round, "outcome": self._outcome,
+                    "simultaneous_exchange_pending": self._simultaneous,
                     "actors": shown, "transcript": list(self.public_transcript()),
                     "status": self.status().value}
 
