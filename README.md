@@ -67,6 +67,10 @@ Run `python -m aidm --version` to view the declared application version, **full*
 
 An optional build-time helper generates a Git-ignored manifest against the final clean Git commit so packaged code can identify itself without Git. Only the separate controlled release Story **AIDM-DES-030.2** may approve a release build, tag or GitHub Release. The logger's optional structured JSONL and standard test reports consume the same build identity. See [Version and Runtime Build Identity](docs/VERSIONING.md) for usage and remaining approval/integration tasks.
 
+## Shared internal communication contracts
+
+The framework-neutral in-process contracts in `aidm.internal_messages` define `InternalRequest`, `InternalResult`, `SafeError`, `ErrorCode`, and the six `ResultStatus` outcomes. A child invocation receives its own request ID while preserving its workflow correlation ID. State-changing requests require a command ID and expected world version; event references are absent unless a trusted service supplies actual committed effects. Caller and knowledge-scope fields are **untrusted claims**, not permission grants. The small `safe_call` helper supports injected fake-tool tests without becoming a dispatcher, CrewAI replacement, HTTP server, or Bookkeeper. See [Internal request/result contracts](docs/INTERNAL_MESSAGES.md) (AIDM-DES-033.1). FastAPI `/api/turn` integration belongs to DES-013.2; routing to DES-016.
+
 ## Programme references
 
 - [Airtable](https://airtable.com/appG1E9VVbXBS7ZB0/pagkLWL3XMiwNHuEl/edit?utm_source=chatgpt.com) is authoritative for Stories, ownership, scope, Test Results and Release Notes.
