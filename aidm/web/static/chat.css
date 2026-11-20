@@ -83,3 +83,18 @@ button:disabled { background: #a7b1b1; cursor: progress; }
   .message { max-width: 96%; }
   .chat-header { padding-bottom: 12px; }
 }
+
+.combat-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-bottom: 10px; }
+.combat-actions button { font-size: .83rem; padding: 9px 13px; }
+.combat-actions #combat-log { background: #5a6870; }
+.combat-actions #combat-log:disabled { background: #a7b1b1; }
+#combat-status { color: #536069; font-size: .79rem; }
+.combat-board {
+  background: #fff; border: 1px solid #d4d9db; border-radius: 12px;
+  margin-top: 12px; padding: 12px; max-height: 230px; overflow-y: auto;
+}
+.combat-board[hidden] { display: none; }
+.combat-board h2 { font-size: .95rem; margin: 0 0 8px; }
+.combat-board ol { margin: 0; padding-left: 20px; font-size: .83rem; }
+.combat-board li { padding: 3px 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.party-outcome { font-size: .83rem; font-weight: 650; margin: 8px 0 0; white-space: pre-wrap; }
