@@ -24,6 +24,7 @@ export function mountChat({
   const combatBoard = documentRef.getElementById("combat-board");
   const combatEvents = documentRef.getElementById("combat-events");
   const partyOutcome = documentRef.getElementById("party-outcome");
+  const partyStatus = documentRef.getElementById("party-status");
   const shownEvents = new Set();
   let visibleEncounterId = null;
   let pending = false;
@@ -64,6 +65,12 @@ export function mountChat({
       visibleEncounterId = view.encounter_id;
     }
     combatBoard.hidden = false;
+    if (partyStatus && Array.isArray(view.party_status)) {
+      partyStatus.textContent = view.party_status.map((actor) => {
+        const down = actor.hp_current === 0 ? " (down)" : "";
+        return `${actor.name}: ${actor.hp_current}/${actor.hp_max} HP${down}`;
+      }).join(" · ");
+    }
     if (logButton) logButton.disabled = pending;
     if (combatStatus) {
       const label = view.terminal ? "Encounter ended"
