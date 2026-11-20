@@ -3,6 +3,7 @@
 Purpose: Prove one local app, static page, and Browser/Meta/DM/Combat seam.
 Usage: python -m pytest aidm/web/test/test_web_chat.py -q
 Change Log: 2026-11-20 DAVOS — first HTML chat and stub roundtrip tests.
+            2026-11-20 DAVOS — restrict unsafe HTML source check to property access.
 
 Browser DOM/fetch contract tests are separate, offline Node built-in tests at
 aidm/web/test/chat_client.test.mjs; pytest does not execute JavaScript.
@@ -66,7 +67,9 @@ def test_frontend_only_references_existing_meta_turn_api_and_safe_text():
         assert "POST" in js and "session_id" in js and "correlation_id" in js
         assert "fetch(" not in ui and "/api/combat" not in (js + ui)
         assert "textContent" in ui
-        assert "innerHTML" not in ui
+        # The source comment documents "never innerHTML"; reject actual
+        # DOM property access rather than the harmless comment text.
+        assert ".innerHTML" not in ui
         assert 'role="log"' in client.get("/chat").text
         assert "maxlength=\"4000\"" in client.get("/chat").text
 
