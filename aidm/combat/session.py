@@ -375,8 +375,6 @@ class CombatSessionService:
             summary = "Combat result is uncertain; inspect the current log before any retry."
         if not read_only and status in (ResultStatus.NEEDS_PLAYER_INPUT, ResultStatus.COMPLETED):
             narratable = tuple(e["text"] for e in public_log[-3:])
-            if narratable and isinstance(self._policy, IntentPolicy.__class__):
-                pass  # runtime protocol marker is not an authorisation check
             if narratable:
                 try:
                     flavour = self._policy.narrate(verified_events=narratable)
