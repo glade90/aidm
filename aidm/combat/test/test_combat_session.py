@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 
 from aidm.combat.dice import FixedRollSource
 from aidm.combat.live_policy import OpenAIResponsesPolicy
+from aidm.combat.rules_reference import RuleProfile
 from aidm.combat.session import CombatSessionService, ScriptedIntentPolicy
 from aidm.config import load_config
 from aidm.web import create_chat_app
@@ -34,7 +35,7 @@ class FakeLogger:
 WIN_FACES = (6, 2, 12, 5, 1, 1, 6, 2, 17, 4, 12, 3)
 
 
-def make_app(*, faces=WIN_FACES, policy=None):
+def make_app(*, faces=WIN_FACES, policy=None, rule_profile=None):
     sources = []
 
     def dice_source():
@@ -42,7 +43,10 @@ def make_app(*, faces=WIN_FACES, policy=None):
         sources.append(result)
         return result
 
-    service = CombatSessionService(roll_source_factory=dice_source, intent_policy=policy)
+    service = CombatSessionService(
+        roll_source_factory=dice_source, intent_policy=policy,
+        rule_profile_factory=(lambda: rule_profile) if rule_profile is not None else None,
+    )
     settings = load_config(
         environ={"AIDM_MODE": "test", "AIDM_REQUEST_TIMEOUT_SECONDS": "10"},
         dotenv_path="/definitely/nonexistent/.env",
@@ -249,6 +253,87 @@ def test_separate_browser_sessions_and_wrong_encounter_cannot_mutate():
         assert service._sessions["player-b"].engine.version == 0
         assert service._sessions["player-b"].engine.snapshot()["hp"]["orc-01"] == 6
         assert sources[1].cursor == 2
+
+
+def test_missing_flail_overlay_requires_ruling_without_roll():
+    app, service, sources = make_app(
+        rule_profile=RuleProfile(fixture_loadout_confirmed=True),
+    )
+    with TestClient(app) as client:
+        initial = start(client)["combat"]
+        result = act(client, initial, "Alho attacks Orc 1 with flail",
+                     action_id="unapproved-flail")
+        assert result["status"] == "NEEDS_RULING"
+        assert result["error"]["code"] == "UNSUPPORTED_RULE"
+        assert result["combat"]["state_version"] == 0
+        assert result["combat"]["next_decision"]["actor_id"] == "alho"
+        assert service._sessions["s1"].engine.snapshot()["hp"]["orc-01"] == 6
+        assert sources[0].cursor == 2
+
+
+def test_due_morale_blocks_truthfully_when_unimplemented():
+    app, service, sources = make_app(rule_profile=RuleProfile(
+        house_rule_overlays=("HR-WEAPON-FLAIL-001",),
+        fixture_loadout_confirmed=True, morale_enabled=True,
+    ))
+    with TestClient(app) as client:
+        initial = start(client)["combat"]
+        after = act(client, initial, "HOLD", action_id="morale-due")
+        assert after["status"] == "NEEDS_RULING"
+        assert after["error"]["code"] == "UNSUPPORTED_RULE"
+        events = service._sessions["s1"].engine.journal()
+        assert any(e.kind == "MORALE_TRIGGER" and
+                   e.details.get("status") == "BLOCKED_UNIMPLEMENTED" for e in events)
+        assert sources[0].cursor == 4  # No secret 2d6 morale invented.
+
+
+def test_unsupported_nonattack_action_is_explicit_ruling():
+    app, service, sources = make_app()
+    with TestClient(app) as client:
+        initial = start(client)["combat"]
+        for text in ("I switch weapons", "I cast a spell", "I shoot my bow"):
+            result = act(client, initial, text, action_id="try-" + str(len(text)))
+            assert result["status"] == "NEEDS_RULING"
+            assert result["error"]["code"] == "UNSUPPORTED_RULE"
+        assert sources[0].cursor == 2
+        assert service._sessions["s1"].engine.version == 0
+
+
+def test_full_two_round_fake_llm_interprets_humans_and_narrates_without_rules_power():
+    class FakeLlm:
+        def __init__(self):
+            self.inputs = []
+            self.narrated = []
+
+        def propose(self, *, player_text, actor_id, allowed_targets):
+            self.inputs.append((actor_id, player_text, allowed_targets))
+            if "stand ready" in player_text.lower() or "shield up" in player_text.lower():
+                return "HOLD", None
+            if actor_id == "alho" and "second orc" in player_text.lower():
+                return "ATTACK_MELEE", "orc-02"
+            return "NEEDS_CLARIFICATION", None
+
+        def narrate(self, *, verified_events):
+            self.narrated.append(verified_events)
+            return "The steel rings against steel."
+
+    policy = FakeLlm()
+    app, service, sources = make_app(policy=policy)
+    with TestClient(app) as client:
+        v0 = start(client)["combat"]
+        v1 = act(client, v0, "Alho stands ready", action_id="model1")["combat"]
+        assert v1["next_decision"]["actor_id"] == "sho-rembo"
+        v2 = act(client, v1, "Sho keeps his shield up", action_id="model2")["combat"]
+        assert v2["current_round"] == 2
+        final = act(client, v2, "Alho strikes the second orc!", action_id="model3")
+        assert final["status"] == "COMPLETED"
+        assert final["combat"]["terminal"]
+        assert final["combat"]["outcome"] == "PARTY_VICTORY"
+        assert [x[0] for x in policy.inputs] == ["alho", "sho-rembo", "alho"]
+        assert len(policy.narrated) >= 3
+        assert "Narrative (non-authoritative)" in final["message"]
+        assert sources[0].cursor == len(WIN_FACES)
+        assert service._sessions["s1"].engine.snapshot()["hp"]["orc-03"] == 0
 
 
 def test_original_message_only_stub_remains_unchanged():
