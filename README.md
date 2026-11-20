@@ -85,6 +85,16 @@ The AIDM-only specialist `CombatAgent(Braider)` is available from `aidm.combat`,
 
 The AIDM-owned `DungeonMasterAgent(Braider)` in `aidm.dm` provides the first non-LLM player-facing **gateway**. It accepts a known, synthetic `I swing my sword at the orc!` input, calls one injected `CombatAgent.handle` through the existing DES-033.1 typed request/result contract, and relays the Combat stub's permitted narrative **unchanged**. Parent and child calls have distinct request IDs but share session/correlation; the DM itself never invokes a model, rolls dice, interprets combat rules, changes HP or writes events. Noncombat and missing-encounter inputs fail safely. The existing `POST /api/turn` accepts this DM via service injection; no new HTTP server or CLI was introduced. See [Thin DM gateway walkthrough and tests](docs/DM_GATEWAY.md). A real DM's intelligent delegation is still deferred to DES-016/041.
 
+## Local HTML chat — real stub gateway (AIDM-DES-014.1)
+
+Run **one** existing Meta FastAPI application with an injected `DungeonMasterAgent` → `CombatAgent` synthetic chain:
+
+```bash
+python -m uvicorn aidm.web.app:create_chat_app --factory --host 127.0.0.1 --port 8000
+```
+
+Open **http://127.0.0.1:8000/chat** and submit `I swing my sword at the orc.`. The response explicitly says **Simulation only**: no real combat, die rolls, damage or hit-point changes occur. The browser uses only `POST /api/turn`, maintains ephemeral session/correlation IDs, renders text safely and prevents duplicate submissions. The page is served from the **same FastAPI app**, with no new game endpoint, third-party frontend framework, API key or separate backend. The scripted DM accepts this period-ending UAT phrase without rewriting the original words. See [HTML Chat implementation, tests and BON UAT](docs/HTML_CHAT.md). This is Functional work; human browser UAT is separately required before acceptance.
+
 ## Raw collectible dice (AIDM-DES-005.2)
 
 The raw dice utility deliberately separates **what a Die is** from **rolling** and **the rules that interpret its face**. `from aidm.combat import Die, DiceRoller, FixedRollSource` supports `DiceRoller(FixedRollSource([12])).roll(Die("blue-d20", 20, "blue"), roll_id="attack-001")`, yielding the selected die's actual **unmodified face 12** with identity, source and queue provenance. `roll_many([blue_d8, red_d6, gold_d4])` returns distinct ordered raw faces with atomic fixed-source preflight, never an automatic sum or modifier. There are **no modifier/total fields or NdS±M parser** in this layer. The Combat Rules Engine (DES-001.2) decides applicable modifiers, hit/damage and state changes; DES-005.3 owns complete mixed-actor combat batch orchestration. The new contract **breaks the original DES-005.2 v0.3 interface intentionally** per the Owner's design correction; see [Raw Dice and migration notes](docs/DICE.md).
