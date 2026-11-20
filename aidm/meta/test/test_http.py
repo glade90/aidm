@@ -56,6 +56,7 @@ def test_health_status_and_graceful_shutdown():
         }
         assert client.get("/docs").status_code == 200
         assert client.get("/openapi.json").status_code == 200
+        assert client.get("/openapi.json").json()["info"]["version"] != "UNKNOWN"
     assert app.state.meta_runtime.state is LifecycleState.STOPPED
     assert logger.start_calls == logger.close_calls == 1
 
