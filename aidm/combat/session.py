@@ -57,6 +57,8 @@ class IntentPolicy(Protocol):
 class ScriptedIntentPolicy:
     """Offline, conservative human-input parser; all choices still engine-validated."""
 
+    mode = "OFFLINE_SCRIPTED"
+
     def propose(self, *, player_text: str, actor_id: str,
                 allowed_targets: tuple[str, ...]) -> tuple[str, str | None]:
         text = player_text.strip().casefold()
@@ -124,6 +126,11 @@ class CombatSessionService:
             raise ValueError("Dice source factory must be callable")
         self._source_factory = roll_source_factory
         self._policy = intent_policy if intent_policy is not None else ScriptedIntentPolicy()
+        declared_mode = getattr(self._policy, "mode", "INJECTED_POLICY")
+        self._intent_mode = (
+            declared_mode if declared_mode in ("OFFLINE_SCRIPTED", "LIVE_LLM")
+            else "INJECTED_POLICY"
+        )
         self._rule_profile_factory = (rule_profile_factory if rule_profile_factory is not None
             else lambda: RuleProfile(
                 house_rule_overlays=(FLAIL_RULE,), fixture_loadout_confirmed=True,
@@ -424,6 +431,7 @@ class CombatSessionService:
             )
         view = {
             "encounter_id": active.encounter_id,
+            "intent_mode": self._intent_mode,
             "state_version": snap["version"],
             "current_round": snap["round_index"],
             "phase_label": phase,
