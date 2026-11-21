@@ -68,9 +68,9 @@ BEGIN TRY
    2,
    1,
    N'AIDM estimated 2ft×2ft full diameters and 1ft height; Mentzer gives no species dimensions.',
-   N'assets/images/monsters/AIDM_STIRGE_Species_Stirges_Attacking_Illustration.webp',
+   N'assets/images/monsters/AIDM_STIRGE-T001_Stirge_Assault_Illustration.webp',
    NULL,
-   N'Species source Frank Mentzer 1983 D&D Basic Dungeon Masters Rulebook p38, Stirge: AC7, HD1*, movement 30 (10) ground, 180 (60) flying, one attack for 1-3 damage, appearing 1-10 (3-36), save Fighter2, morale9, treasure L, Neutral, XP13; successful Hit attaches and deals 1d3, then 1d3 blood drain each round until dead; flying first Hit Roll against any one opponent +2. Size D1=2ft, D2=2ft FULL footprint diameters, estimated Z=1ft are owner-accepted modelling estimates, not Mentzer stat lines. No poison, disease or saving throw specified. For source-verifiable simulated encounter see STIRGE-T001 in Test schema, with exact dice faces and initial surprise. Artwork depicts a subset of attacking Stirges, NOT the exact rolled count of nine. SourceChecked/Active=0 remains until authorised activation.');
+   N'Species source Frank Mentzer 1983 D&D Basic Dungeon Masters Rulebook p38, Stirge: AC7, HD1*, movement 30 (10) ground, 180 (60) flying, one attack for 1-3 damage, appearing 1-10 (3-36), save Fighter2, morale9, treasure L, Neutral, XP13; successful Hit attaches and deals 1d3, then 1d3 blood drain each round until dead; flying first Hit Roll against any one opponent +2. Size D1=2ft, D2=2ft FULL footprint diameters, estimated Z=1ft are owner-accepted modelling estimates, not Mentzer stat lines. No poison, disease or saving throw specified. For source-verifiable simulated encounter see STIRGE-T001 in Test schema, with exact dice faces and initial surprise. Artwork depicts a subset of attacking Stirges, NOT the exact rolled count of ten. SourceChecked/Active=0 remains until authorised activation.');
   PRINT N'Stirge SourceChecked inactive monster species inserted.';
  END
  ELSE PRINT N'STIRGE already exists: no overwrite or duplicate version.';
