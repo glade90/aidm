@@ -13,7 +13,6 @@ strictly opt-in; default sessions use deterministic scripted intentions.
 from __future__ import annotations
 
 from collections.abc import Callable
-import os
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -62,17 +61,23 @@ def create_chat_app(
         combat_handler = combat.handle
 
     if combat_session_handler is None:
-        if intent_policy is None and os.environ.get("AIDM_LIVE_LLM", "").strip() == "1":
-            # Live model use is opt-in at launch. The secret loader is explicit
-            # and never runs on import. Tests can inject a fake IntentPolicy.
-            configured = settings if settings is not None else load_config(
-                required_secrets=("OPENAI_API_KEY",),
-            )
-            secret = configured.get_secret("OPENAI_API_KEY")
-            model = os.environ.get("AIDM_LLM_MODEL", "").strip()
-            if not secret or not model:
-                raise ValueError("Live model requires explicitly configured key and model")
-            intent_policy = OpenAIResponsesPolicy(api_key=secret, model=model)
+        if intent_policy is None:
+            # Always resolve the *switch and model* through the validated
+            # configuration loader: it honours the local .env in development,
+            # with process environment taking precedence. In test/CI/prod,
+            # the loader deliberately ignores local .env.
+            configured = settings if settings is not None else load_config()
+            if configured.live_llm:
+                # Request the credential explicitly, and only in live mode.
+                # An already-injected Settings must have requested its secret
+                # at construction; never bypass a test's injected boundary.
+                if settings is None:
+                    configured = load_config(required_secrets=("OPENAI_API_KEY",))
+                secret = configured.get_secret("OPENAI_API_KEY")
+                model = configured.llm_model
+                if not secret or not model:
+                    raise ValueError("Live model requires explicitly configured key and model")
+                intent_policy = OpenAIResponsesPolicy(api_key=secret, model=model)
         service = CombatSessionService(intent_policy=intent_policy)
         combat_session_handler = service.handle
 
