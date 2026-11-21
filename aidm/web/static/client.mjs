@@ -40,7 +40,34 @@ export class ChatApiClient {
   }
 
   async startCombat() {
-    return this._send("", { kind: "START", log_since_sequence: 0 });
+    const result = await this._send("", { kind: "START", log_since_sequence: 0 });
+    if (result.combat && result.status !== "ERROR") {
+      this.actionUncertain = false; // START can re-sync after uncertain RESET.
+    }
+    return result;
+  }
+
+  async resetCombat() {
+    if (!this.combatState) {
+      return {
+        status: "NEEDS_PLAYER_INPUT", message: "Start a combat encounter first.",
+        combat: null, simulated: false,
+      };
+    }
+    const oldId = this.combatState.encounter_id;
+    const result = await this._send("", {
+      kind: "RESET", encounter_id: oldId, log_since_sequence: 0,
+    });
+    // Do not claim a reset until the server returns a distinct encounter
+    // and a fresh player decision. On an uncertain reset, block ACTION until
+    // an explicit START re-sync (VIEW_LOG may now have a stale encounter id).
+    if (result.combat && result.combat.encounter_id !== oldId
+        && result.status !== "ERROR") {
+      this.actionUncertain = false;
+    } else if (result.status === "ERROR") {
+      this.actionUncertain = true;
+    }
+    return result;
   }
 
   async viewCombatLog() {
