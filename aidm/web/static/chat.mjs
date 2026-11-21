@@ -75,8 +75,11 @@ export function mountChat({
     if (combatStatus) {
       const label = view.terminal ? "Encounter ended"
         : view.awaiting_player ? "Waiting for your decision" : "Rules check required";
+      const modelLabel = view.intent_mode === "LIVE_LLM"
+        ? "Live LLM enabled" : view.intent_mode === "OFFLINE_SCRIPTED"
+          ? "Offline scripted intentions" : "Injected intention policy";
       combatStatus.textContent =
-        `Round ${view.current_round} · ${view.phase_label} · ${label}`;
+        `Round ${view.current_round} · ${view.phase_label} · ${label} · ${modelLabel}`;
     }
     for (const entry of view.new_log_entries ?? []) {
       if (!Number.isInteger(entry.seq) || shownEvents.has(entry.seq)) continue;
