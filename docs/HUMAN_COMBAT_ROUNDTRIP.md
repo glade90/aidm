@@ -210,3 +210,38 @@ Tests verify strict cue enum, actual fixed-dice hit/miss/fall/hold/victory
 events, and text-safe journal rendering with malformed cues. The actual
 PEQUOD full runner and Node CLI must be repeated for this latest draft head
 before developer sign-off; prior clean runs refer to earlier commits.
+
+### Tied initiative: simultaneous defeat attribution (21 November 2026)
+
+Owner reported a false contradiction in the combat journal:
+`💀 R1 · MELEE: Alho misses Orc 1. Orc 1 falls | d20 2 + 0 = 2`.
+Root cause was **projection**, not a missed attack calculating damage.
+COSTA's `CombatEngine._resolve_simultaneous` correctly aggregates all
+eligible attacks in a tied initiative exchange, applies one final HP commit,
+then deliberately records the **same** `hp_before`/`hp_after` per target
+on **each** related `MELEE_RESOLVED` event, including a miss with damage 0.
+The initial DAVOS public event projector mistook that per-target aggregate
+HP transition as the attributable outcome of Alho's particular miss. The
+bad projection attached both the text `Orc 1 falls` and 💀 to the missed
+attack; the underlying attack roll/damage were unchanged.
+
+Corrected behavior:
+- Individual tied-instead-of-normal melee events report only their own
+  engine-verified hit/miss and damage: a miss is always 💨.
+- Validated positive-to-zero aggregate HP casualties are collected from
+  real positive-damage hits, then reported **once** on
+  `SIMULTANEOUS_EXCHANGE_COMMITTED` as 💀 `Simultaneous exchange
+  resolves. Orc 1 falls`; there is no unverified personal kill credit.
+- The journal cursor implementation also processes earlier events for
+  aggregation before applying the displayed cursor, so the full and
+  incremental player-safe journals agree without duplicate kills.
+- Ordinary non-simultaneous landed lethal attacks continue to report
+  the fall directly on that hit.
+
+`test_tied_initiative_miss_does_not_take_credit_for_simultaneous_defeat`
+uses source-backed fixed faces for tied initiative, Alho d20=2 miss,
+Evro d20=12/d8=5 hit, and Orc 1's 6-HP defeat, asserting no fall on
+Alho's miss, exactly one fall on the source-backed exchange commit,
+correct DM text and no leaked private HP/AC. The owner must rerun
+source-matched PEQUOD tests and the browser on the latest SHA to certify
+this correction.
