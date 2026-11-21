@@ -142,7 +142,8 @@ class FakeElement {
   constructor() {
     this.listeners = {}; this.children = []; this.dataset = {};
     this.value = ""; this.disabled = false; this.hidden = false;
-    this.scrollHeight = 123; this.textContent = ""; this.parentElement = null;
+    this.scrollHeight = 123; this.scrollTop = 0;
+    this.textContent = ""; this.parentElement = null;
     this.className = "";
   }
   addEventListener(kind, callback) { this.listeners[kind] = callback; }
@@ -156,12 +157,14 @@ class FakeElement {
 function makeDom() {
   const controls = {};
   const ids = [
-    "chat-form", "player-message", "send-button", "transcript",
+    "chat-form", "player-message", "send-button", "transcript", "chat-panel",
     "service-status", "combat-start", "combat-log", "combat-status",
     "combat-board", "combat-events", "party-outcome", "party-status",
   ];
   for (const key of ids) controls[key] = new FakeElement();
   controls["service-status"].parentElement = new FakeElement();
+  controls["transcript"].parentElement = controls["chat-panel"];
+  controls["combat-events"].parentElement = controls["combat-board"];
   return {
     controls,
     getElementById: (key) => controls[key],
@@ -243,4 +246,53 @@ test("miss, fall, hold, round, and victory cues render as safe text only", async
   assert.match(journal[5].textContent, /^🏆 R1/);
   assert.match(journal[6].textContent, /^R1/);
   assert.ok(journal[6].textContent.includes("<script>not executed</script>"));
+});
+
+
+test("DM multiline events keep carriage returns and auto-tail the real scroll containers", async () => {
+  const dom = makeDom();
+  const message = "🔄 Round 1 begins.\n🎲 Round 1 initiative: Party 6, Orcs 2 — Party wins initiative and acts first.\n⚔️ Alho hits Orc 1 for 4 damage.\n\nSho-Rembo: choose your action.";
+  const event = { seq: 1, round: 1, phase: "INITIATIVE",
+    kind: "SIDE_INITIATIVE", cue: "INITIATIVE",
+    text: "Round 1 initiative: Party 6, Orcs 2 — Party wins initiative and acts first" };
+  const fake = {
+    combatState: null,
+    async startCombat() {
+      this.combatState = view(0, { cursor: 1, events: [event] });
+      return { status: "NEEDS_PLAYER_INPUT", message,
+        combat: this.combatState, simulated: false };
+    },
+    async send(playerText) {
+      assert.equal(playerText, "Orc 1");
+      this.combatState = view(1, { cursor: 2,
+        events: [{ seq: 2, round: 1, phase: "MELEE",
+          kind: "MELEE_RESOLVED", cue: "HIT",
+          text: "Alho hits Orc 1 for 4 damage" }] });
+      return { status: "NEEDS_PLAYER_INPUT",
+        message: "⚔️ Alho hits Orc 1 for 4 damage.\n💨 Evro misses Orc 1.",
+        combat: this.combatState, simulated: false };
+    },
+  };
+  mountChat({ documentRef: dom, client: fake });
+  const transcript = dom.controls["transcript"];
+  const panel = dom.controls["chat-panel"];
+  const board = dom.controls["combat-board"];
+  assert.equal(panel.scrollTop, 0);
+  assert.equal(board.scrollTop, 0);
+  await dom.controls["combat-start"].listeners.click();
+  assert.equal(panel.scrollTop, panel.scrollHeight, "Chat panel follows new DM reply");
+  assert.equal(board.scrollTop, board.scrollHeight, "Combat board follows new journal item");
+  assert.equal(transcript.scrollTop, 0, "Non-scrolling <ol> is not used");
+  assert.equal(transcript.children.at(-1).children[1].textContent, message);
+
+  panel.scrollTop = 0;
+  board.scrollTop = 0;
+  dom.controls["player-message"].value = "Orc 1";
+  await dom.controls["chat-form"].requestSubmit();
+  assert.equal(panel.scrollTop, panel.scrollHeight,
+    "Chat panel follows both player submission and subsequent DM reply");
+  assert.equal(board.scrollTop, board.scrollHeight,
+    "Combat board auto-tails new events");
+  assert.match(transcript.children.at(-1).children[1].textContent,
+    /Alho hits Orc 1 for 4 damage\.\n💨 Evro misses Orc 1\./);
 });
