@@ -137,6 +137,7 @@ class PlayerCombatView(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     encounter_id: str
+    intent_mode: Literal["OFFLINE_SCRIPTED", "LIVE_LLM", "INJECTED_POLICY"] = "OFFLINE_SCRIPTED"
     state_version: int = Field(ge=0)
     current_round: int = Field(ge=1)
     phase_label: str = Field(max_length=80)
