@@ -128,7 +128,11 @@ def test_reset_creates_new_canonical_engine_while_preserving_session_identity():
         assert newer["current_round"] == 1
         assert newer["log_next_cursor"] > 0
         assert newer["next_decision"]["actor_id"] == "alho"
-        assert newer["next_decision"]["decision_token"] != old["next_decision"]["decision_token"]
+        # A decision token is scoped to its encounter: an identical round,
+        # version, actor and event count can produce the same token after
+        # reset. Freshness is enforced by the different encounter_id.
+        assert isinstance(newer["next_decision"]["decision_token"], str)
+        assert newer["next_decision"]["decision_token"]
         assert newer["new_log_entries"][0]["kind"] == "ROUND_STARTED"
         assert all(entry["round"] == 1 for entry in newer["new_log_entries"])
         assert {a["actor_id"]: a["hp_current"] for a in newer["party_status"]} == {
@@ -171,6 +175,10 @@ def test_reset_rejects_old_or_foreign_encounter_without_changing_any_state():
         assert len(sources) == 3
         assert service._sessions["s1"].encounter_id == new["encounter_id"]
         assert service._sessions["s2"].encounter_id == unrelated["encounter_id"]
+        # Even if the old and new decisions happen to have identical tokens,
+        # the old encounter ID is rejected before an action can reach the engine.
+        assert before["next_decision"]["actor_id"] == new["next_decision"]["actor_id"]
+        assert before["state_version"] == new["state_version"]
         stale_action = act(client, before, "HOLD", action_id="stale-after-reset")
         assert stale_action["status"] == "BLOCKED"
         assert stale_action["combat"] is None
