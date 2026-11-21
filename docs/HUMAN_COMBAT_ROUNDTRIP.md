@@ -261,3 +261,14 @@ The DM narration now renders each verified action/event on a separate line, incl
 The transcript's scrollable element is .chat-panel; the combat journal's is .combat-board. Previously the JS assigned scrollTop to their inner non-scrolling ordered lists. The UI now sets scrollTop = scrollHeight on the correct parent after appending player/DM messages or fresh journal events. This deliberately follows new messages to the tail, per owner request.
 
 Added Python fixed-dice tests for party initiative win, orc initiative win, tied initiative, and round-two initiative text/carriage returns. Expanded offline JS DOM tests verify newlines remain in textContent and both actual scrollbar containers tail after new replies. Latest source-matched PEQUOD Python/Node full regression and manual browser verification remain required.
+
+
+### Reset combat control (21 November 2026)
+
+The HTML prototype now has a **Reset combat** button next to Start and View Log. It is disabled until a combat session exists and while a request is pending. Reset is a typed control request through the existing same-origin POST /api/turn, never a new endpoint. It includes the current opaque encounter ID (but no player action, dice, hit/HP values or user rules).
+
+The CombatSessionService RESET handler checks the current session and exact active encounter ID under the same lock used for ACTION. A successful RESET creates an entirely fresh canonical 3-v-3 CombatEngine, independently seeded dice source, encounter UUID, zeroed version/action-ID ledger, full starting HP, fresh round 1 initiative and fresh event journal. It replaces only the current session's active encounter. Stale RESET/ACTION/VIEW_LOG requests using an old encounter ID are blocked without touching the new combat. START remains idempotent: only explicit RESET replaces an existing match.
+
+Only after a confirmed new encounter ID does the browser clear the old transcript, old journal, last outcome, typed-but-unsent message and view cursor. It then shows the fresh DM opening and round-1 events and resumes tailing both scrollbars. Failure or indeterminate RESET response must NOT clear the old display. An uncertain network reset blocks subsequent combat ACTIONs until START re-synchronises with the server's current encounter. Reset is a prototype convenience, not Bookkeeper persistence, resurrection or an undo of any external world event.
+
+Python tests exercise reset while active, fresh HP/engine/roll source/log/ID, cross-session isolation, repeated/stale/wrong-ID reset rejection, stale action failure, and a clean reset after party victory. Offline JavaScript tests verify the typed network route, identity and correlation, timeout recovery, and the browser control preserving old display on failure then clearing it on confirmed new encounter. Source-matched PEQUOD pytest/standard runner/standalone Node and manual browser acceptance remain required.
