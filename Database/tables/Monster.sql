@@ -11,7 +11,7 @@ Target Server   : PEQUOD (SQL Server default instance)
 Database        : DnD
 Schema          : Rules
 Table           : Rules.Monster
-Version         : 0.3.0 (DRAFT - OWNER REVIEW)
+Version         : 0.4.0 (DRAFT - OWNER REVIEW)
 Created         : 2026-11-21
 Last Modified   : 2026-11-21
 Dependencies    : Database/database/dnd.sql
@@ -29,12 +29,18 @@ DESIGN NOTES
   PK = (RecordDate, RulesetCode, MonsterCode); each dated version is preserved.
   A filtered unique index permits at most one Active=1 version per monster
   within each ruleset. Only SourceStatus=Approved may be Active.
-- GeneralDescription is prose for the DM's appearance/behaviour narration.
-  SpecialAttacksFeatures is source-backed NATURAL LANGUAGE guidance including
-  conditional modifiers, triggers, attack effects, saves, statuses and
-  durations/expiry. It is NOT directly executable SQL or authoritative state.
-  The LLM Combat Agent interprets it into typed proposals; deterministic
-  rules/tools validate the proposal and perform rolls/state mutations.
+- GeneralDescription is neutral DM-facing descriptive appearance and sensory
+  prose. SpecialAttacksFeatures is COMBAT-specific source-backed natural
+  language: attacks, damage, saving throws, modifiers, statuses and durations.
+- SpecialEncounterFeatures is a separate NATURAL LANGUAGE field for all
+  special Encounter requirements, both mechanical (surprise, camouflage,
+  scene preconditions) AND nontechnical (behaviour, parley, intimidation,
+  retreat/stand-off, habitat, social/tribal/lair/ecology and tactics).
+  These notes guide the Encounter LLM; they are NOT executable SQL or
+  automatic mechanics and NEVER supersede player choices. The source rules,
+  room scene and approved house overlays govern the interpretation.
+- Encounter prepares a validated roster + source-aware guidance and passes
+  it to Combat; Combat never performs a database lookup.
 - Printed stats are NULL until sourced; unknown is NOT zero. HitDiceText
   retains notation such as fractions or bonuses without lossy numeric casting.
 - Artwork paths identify approved static assets; image bytes are NOT stored in
@@ -64,6 +70,8 @@ Date         Version   Description
                         radii; Z remains vertical height.
 2026-11-21   0.3.0     Replace ellipse radii with D1/D2 FULL diameters,
                         with owner-defined 5-ft-diameter humanoid default.
+2026-11-21   0.4.0     Add separate SpecialEncounterFeatures for scene and
+                        social/behaviour/negotiation guidance and surprise.
 ===============================================================================
 */
 
@@ -113,6 +121,7 @@ BEGIN
         -- Separate DM narration and Combat Agent rule interpretation inputs.
         [GeneralDescription]     NVARCHAR(MAX)  NOT NULL,
         [SpecialAttacksFeatures] NVARCHAR(MAX)  NOT NULL,
+        [SpecialEncounterFeatures] NVARCHAR(MAX) NOT NULL,
 
         -- Optional future Geometry: horizontal oval FULL diameters D1/D2 and height Z (feet).
         [D1Feet]               DECIMAL(9,2)   NULL,
@@ -169,6 +178,7 @@ BEGIN
             (N'MovementRoundFeet'), (N'MovementSpecialText'), (N'Alignment'),
             (N'XPValue'), (N'NumberAppearingText'), (N'TreasureType'),
             (N'GeneralDescription'), (N'SpecialAttacksFeatures'),
+            (N'SpecialEncounterFeatures'),
             (N'SizeXFeet'), (N'SizeYFeet'), (N'SizeZFeet'), (N'SizeBasis'),
             (N'IllustrationPath'), (N'MapIconPath'), (N'NotesMarkdown')
         ) AS required([ColumnName])
@@ -217,7 +227,7 @@ BEGIN
        )
     BEGIN
         THROW 56501,
-            'Incompatible Rules.Monster exists. If still using X/Y/Z or R1/R2/Z, run Monster_Diameter_Footprint_v0_3_0.sql first.', 1;
+            'Incompatible Rules.Monster exists. Run the appropriate data-preserving migrations (diameter v0.3, special encounter v0.4) first.', 1;
     END;
 
     PRINT N'Rules.Monster already exists; no data or schema changed.';
