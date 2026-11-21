@@ -6,7 +6,7 @@ File Name       : MonsterTestCase_Mentzer_Basic_Insert.sql
 Repository Path : Database/tables/inserts/MonsterTestCase_Mentzer_Basic_Insert.sql
 Project         : Golden Braid / AIDM
 Purpose         : Normalize 35 specified tests from six encounter scenarios.
-Target Server   : PEQUOD, SQL Server 2016+ / DnD.Rules.MonsterTestCase
+Target Server   : PEQUOD, SQL Server 2016+ / DnD.Test.MonsterTestCase
 Version         : 0.1.0 (SPECIFICATIONS, NOT EXECUTIONS)
 Created         : 2026-11-21
 Dependencies    : MonsterTestScenario.sql and its six scenario seed rows,
@@ -28,9 +28,9 @@ Dependencies    : MonsterTestScenario.sql and its six scenario seed rows,
 */
 USE [DnD];
 GO
-IF OBJECT_ID(N'Rules.MonsterTestCase', N'U') IS NULL
+IF OBJECT_ID(N'Test.MonsterTestCase', N'U') IS NULL
     THROW 56600, 'Run Database/tables/MonsterTestCase.sql first.', 1;
-IF OBJECT_ID(N'Rules.MonsterTestScenario', N'U') IS NULL
+IF OBJECT_ID(N'Test.MonsterTestScenario', N'U') IS NULL
     THROW 56601, 'MonsterTestScenario parent missing.', 1;
 GO
 SET XACT_ABORT ON;
@@ -554,19 +554,19 @@ BEGIN TRY
     IF EXISTS
     (
         SELECT 1 FROM @Seed AS s
-        LEFT JOIN [Rules].[MonsterTestScenario] AS e
+        LEFT JOIN [Test].[MonsterTestScenario] AS e
           ON e.[ScenarioCode] = s.[ScenarioCode]
         WHERE e.[ScenarioCode] IS NULL
     )
         THROW 56602, 'Missing encounter parent. Run MonsterTestScenario_Mentzer_Basic_Insert.sql first.', 1;
 
-    INSERT INTO [Rules].[MonsterTestCase]
+    INSERT INTO [Test].[MonsterTestCase]
     ([ScenarioCode], [TestCaseCode], [SequenceNo], [TestName], [TestPhase], [TestStatus], [TestRevision], [GivenText], [ExpectedText], [DiceFixtureJson], [AdditionalDataJson], [LinkedStoryRef], [AutomatedTestRef], [Notes])
     SELECT s.[ScenarioCode], s.[TestCaseCode], s.[SequenceNo], s.[TestName], s.[TestPhase], s.[TestStatus], s.[TestRevision], s.[GivenText], s.[ExpectedText], s.[DiceFixtureJson], s.[AdditionalDataJson], s.[LinkedStoryRef], s.[AutomatedTestRef], s.[Notes]
     FROM @Seed AS s
     WHERE NOT EXISTS
     (
-        SELECT 1 FROM [Rules].[MonsterTestCase] AS old WITH (UPDLOCK, HOLDLOCK)
+        SELECT 1 FROM [Test].[MonsterTestCase] AS old WITH (UPDLOCK, HOLDLOCK)
         WHERE old.[ScenarioCode] = s.[ScenarioCode]
           AND old.[TestCaseCode] = s.[TestCaseCode]
     );
@@ -582,7 +582,7 @@ END CATCH;
 GO
 SELECT [ScenarioCode], [TestCaseCode], [SequenceNo], [TestName],
        [TestPhase], [TestStatus], [LinkedStoryRef]
-FROM [Rules].[MonsterTestCase]
+FROM [Test].[MonsterTestCase]
 WHERE [ScenarioCode] IN
     (N'ORC-T001-A',N'ORC-T001-B',N'CENT-T001',
      N'CRAW-T001',N'CRAB-T001',N'TROG-T001')
