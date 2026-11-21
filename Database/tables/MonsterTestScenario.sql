@@ -9,11 +9,11 @@ Purpose         : One version-controlled SQL record per distinct Monster
                   combat/Encounter regression SCENARIO.
 Target Server   : PEQUOD, SQL Server 2016+ (JSON support)
 Database        : DnD
-Schema          : Rules
-Table           : Rules.MonsterTestScenario
-Version         : 0.2.0 (DRAFT FOR OWNER REVIEW)
+Schema          : Test
+Table           : Test.MonsterTestScenario
+Version         : 0.3.0 (DRAFT FOR OWNER REVIEW)
 Created         : 2026-11-21
-Dependencies    : Database/database/dnd.sql, Database/database/Rules.sql;
+Dependencies    : Database/database/dnd.sql, Database/database/Test.sql;
                   Database/tables/Monster.sql v0.4 for source monster contracts.
 Population      : Database/tables/inserts/MonsterTestScenario_Mentzer_Basic_Insert.sql
 
@@ -29,12 +29,11 @@ DATA MODEL
   but is NULL where surprise was never rolled.
 - SceneFactsJson holds explicit environment/exposure facts; per-actor
   Troglodyte stench exposure is supplied by each independent Combat test.
-- TestCasesJson is a NULLABLE DEPRECATED LEGACY field: old encounter rows
-  may still hold their former case arrays for audit. New rows leave it NULL.
-  The ONLY editable/canonical case definitions now live as normalized rows
-  in Rules.MonsterTestCase (FK ScenarioCode), independent of encounter data.
-  To upgrade an existing v0.1 table, use the v0.2 normalization migration
-  to populate child cases before making TestCasesJson nullable.
+- Test cases are NOT stored as an embedded array in the scenario row.
+  Normalized Test.MonsterTestCase records hold each test with its own key
+  and a FOREIGN KEY to the parent ScenarioCode.
+- Owner confirmed these test tables do not exist yet on PEQUOD;
+  this is a clean creation and NO legacy test migration is necessary.
 - The containing table enforces SQL JSON validity (SQL Server 2016 ISJSON)
   and simple bounds; referential/version resolution of MonsterCode is in
   the application because Rules.Monster is date-versioned. NULL means UNKNOWN.
@@ -55,13 +54,13 @@ DATA MODEL
 USE [DnD];
 GO
 
-IF SCHEMA_ID(N'Rules') IS NULL
-    THROW 56580, 'Rules schema missing. Create Rules schema first.', 1;
+IF SCHEMA_ID(N'Test') IS NULL
+    THROW 56580, 'Test schema missing. Run Database/database/Test.sql first.', 1;
 GO
 
-IF OBJECT_ID(N'Rules.MonsterTestScenario', N'U') IS NULL
+IF OBJECT_ID(N'Test.MonsterTestScenario', N'U') IS NULL
 BEGIN
-    CREATE TABLE [Rules].[MonsterTestScenario]
+    CREATE TABLE [Test].[MonsterTestScenario]
     (
         [ScenarioCode]          NVARCHAR(80)   NOT NULL,
         [ScenarioName]          NVARCHAR(160)  NOT NULL,
@@ -80,7 +79,6 @@ BEGIN
         [CountRollJson]         NVARCHAR(MAX)  NULL,
         [SurpriseJson]          NVARCHAR(MAX)  NULL,
         [SceneFactsJson]        NVARCHAR(MAX)  NOT NULL,
-        [TestCasesJson]         NVARCHAR(MAX)  NULL,
         [ExpectedHandoffJson]   NVARCHAR(MAX)  NULL,
         [IllustrationPath]      NVARCHAR(500)  NULL,
         [Notes]                 NVARCHAR(MAX)  NULL,
@@ -108,7 +106,6 @@ BEGIN
                 ISJSON([PartyRosterJson]) = 1
                 AND ISJSON([MonsterRosterJson]) = 1
                 AND ISJSON([SceneFactsJson]) = 1
-                AND ([TestCasesJson] IS NULL OR ISJSON([TestCasesJson]) = 1)
                 AND ([CountRollJson] IS NULL OR ISJSON([CountRollJson]) = 1)
                 AND ([SurpriseJson] IS NULL OR ISJSON([SurpriseJson]) = 1)
                 AND ([ExpectedHandoffJson] IS NULL OR ISJSON([ExpectedHandoffJson]) = 1)
@@ -116,10 +113,10 @@ BEGIN
     );
 
     CREATE NONCLUSTERED INDEX [IX_MonsterTestScenario_Species]
-        ON [Rules].[MonsterTestScenario]
+        ON [Test].[MonsterTestScenario]
             ([RulesetCode], [PrimaryMonsterCode], [ScenarioStatus]);
 
-    PRINT N'Created Rules.MonsterTestScenario (one row per encounter, no seeds).';
+    PRINT N'Created Test.MonsterTestScenario (one row per encounter, no seeds).';
 END
 ELSE
 BEGIN
@@ -131,15 +128,15 @@ BEGIN
             (N'PrimaryMonsterCode'), (N'FixtureRevision'), (N'ScenarioStatus'),
             (N'ReadyForExecution'), (N'OriginReference'), (N'MonsterCount'),
             (N'PartyRosterJson'), (N'MonsterRosterJson'), (N'CountRollJson'),
-            (N'SurpriseJson'), (N'SceneFactsJson'), (N'TestCasesJson'),
+            (N'SurpriseJson'), (N'SceneFactsJson'),
             (N'ExpectedHandoffJson'), (N'IllustrationPath'), (N'Notes'),
             (N'CreatedUtc'), (N'UpdatedUtc')
         ) AS expected([ColumnName])
-        WHERE COL_LENGTH(N'Rules.MonsterTestScenario', expected.[ColumnName]) IS NULL
+        WHERE COL_LENGTH(N'Test.MonsterTestScenario', expected.[ColumnName]) IS NULL
     )
         THROW 56581, 'Existing MonsterTestScenario schema differs; review data-preserving migration.', 1;
 
-    PRINT N'Rules.MonsterTestScenario already exists; no data changed.';
+    PRINT N'Test.MonsterTestScenario already exists; no data changed.';
 END;
 GO
 
@@ -147,6 +144,6 @@ GO
 SELECT [ScenarioCode], [ScenarioName], [RulesetCode],
        [PrimaryMonsterCode], [MonsterCount], [ScenarioStatus],
        [ReadyForExecution], [FixtureRevision], [IllustrationPath]
-FROM [Rules].[MonsterTestScenario]
+FROM [Test].[MonsterTestScenario]
 ORDER BY [ScenarioCode];
 GO
