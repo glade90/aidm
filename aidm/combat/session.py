@@ -219,7 +219,9 @@ class CombatSessionService:
         """Replace only the named active encounter; never reset another session.
 
         An old encounter id cannot reset an unrelated/newer encounter. The
-        old action ids, decision tokens, HP, journal and RNG do not carry over.
+        old action ledger, HP, journal and RNG do not carry over. A decision
+        token's text can recur at the same round/version/actor after reset;
+        the required encounter ID scopes it, and stale IDs are rejected.
         START remains idempotent, while RESET explicitly creates a new fight.
         """
         body = request.payload["combat"]
