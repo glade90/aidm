@@ -7,8 +7,8 @@ Repository Path : Database/tables/inserts/MonsterTestScenario_Mentzer_Basic_Inse
 Project         : Golden Braid / AIDM
 Purpose         : Six DISTINCT source-checked encounter regression fixtures
                   from original OneNote, one SQL row per encounter.
-Database        : DnD / Rules.MonsterTestScenario (SQL Server 2016+)
-Version         : 0.2.0 (SPECIFIED, NOT EXECUTED)
+Database        : DnD / Test.MonsterTestScenario (SQL Server 2016+)
+Version         : 0.3.0 (SPECIFIED, NOT EXECUTED)
 Created         : 2026-11-21
 Dependencies    : Database/tables/MonsterTestScenario.sql;
                   Database/tables/Monster.sql v0.4;
@@ -21,10 +21,10 @@ POLICY
 - ONE ROW PER DISTINCT ENCOUNTER: ORC patrol vs ORC tribal chieftain are TWO.
 - Structured SQL columns + SQL Server JSON-valid arrays for actor rosters,
   scene and precombat rolls; test/scene providers validate IDs and shapes.
-- TestCasesJson is now a deprecated NULL legacy field. The authoritative
-  acceptance cases live in Rules.MonsterTestCase (one row per test) and
-  are populated by MonsterTestCase_Mentzer_Basic_Insert.sql. To preserve
-  older installed fixture data, run the v0.2 normalization migration.
+- Cases are normalized from the start: they live in Test.MonsterTestCase
+  with one row per test, inserted separately. No embedded case arrays.
+- The owner has NOT executed any older test tables on PEQUOD: start clean
+  using the new Test schema. NO normalization migration is necessary.
 - Tests and source fixtures are specifications, not code runs/UAT passes.
   Each row begins ScenarioStatus=Specified, ReadyForExecution=0.
 - Missing older synthetic Orc actor HP are NULL and MUST be filled by
@@ -40,7 +40,7 @@ POLICY
 USE [DnD];
 GO
 
-IF OBJECT_ID(N'Rules.MonsterTestScenario', N'U') IS NULL
+IF OBJECT_ID(N'Test.MonsterTestScenario', N'U') IS NULL
     THROW 56590, 'MonsterTestScenario table missing: run MonsterTestScenario.sql first.', 1;
 GO
 SET XACT_ABORT ON;
@@ -64,14 +64,13 @@ BEGIN TRY
         [CountRollJson] NVARCHAR(MAX) NULL,
         [SurpriseJson] NVARCHAR(MAX) NULL,
         [SceneFactsJson] NVARCHAR(MAX) NOT NULL,
-        [TestCasesJson] NVARCHAR(MAX) NULL,
         [ExpectedHandoffJson] NVARCHAR(MAX) NULL,
         [IllustrationPath] NVARCHAR(500) NULL,
         [Notes] NVARCHAR(MAX) NULL
     );
 
     INSERT INTO @Seed
-    ([ScenarioCode], [ScenarioName], [RulesetCode], [PrimaryMonsterCode], [FixtureRevision], [ScenarioStatus], [ReadyForExecution], [OriginReference], [MonsterCount], [PartyRosterJson], [MonsterRosterJson], [CountRollJson], [SurpriseJson], [SceneFactsJson], [TestCasesJson], [ExpectedHandoffJson], [IllustrationPath], [Notes])
+    ([ScenarioCode], [ScenarioName], [RulesetCode], [PrimaryMonsterCode], [FixtureRevision], [ScenarioStatus], [ReadyForExecution], [OriginReference], [MonsterCount], [PartyRosterJson], [MonsterRosterJson], [CountRollJson], [SurpriseJson], [SceneFactsJson], [ExpectedHandoffJson], [IllustrationPath], [Notes])
     VALUES
         (N'ORC-T001-A',
          N'Orc patrol — daylight, leader, morale',
@@ -87,7 +86,6 @@ BEGIN TRY
          NULL,
          NULL,
          N'{"daylight":true,"geometry":"mocked","morale":8,"scene_change":"daylight may become false between test resets","equipment":"specified by precombat fixture","nonparty_hp_missing":true}',
-         NULL,
          NULL,
          NULL,
          N'Older ORC-T001-A did not specify HP of ORC-A/B: NULL intentionally; requires owner/fixture author to provide before executable run. Original five-Orc picture does NOT depict exact three-Orc roster and is not bound to this scenario. Scene and morale injection mocked.'),
@@ -107,7 +105,6 @@ BEGIN TRY
          N'{"daylight":true,"geometry":"mocked","chieftain_role":"explicit, no ordinary leader automatically created","normal_orc_missing_hp":true}',
          NULL,
          NULL,
-         NULL,
          N'Separate encounter from ORC-T001-A; chieftain HP15 source rule, ordinary ORC-D HP missing from historical test specification. Art five Orcs does not match this two-Orc fixture.'),
         (N'CENT-T001',
          N'Six Giant Centipedes — zero-damage poison bites',
@@ -123,7 +120,6 @@ BEGIN TRY
          N'{"expression":"2d4","faces":[3,3],"result":6}',
          NULL,
          N'{"environment":"damp dungeon","surprise":"not rolled in original fixture","geometry":"mocked","rule":"bites trigger Poison saves only on hit","no_b1_data":true}',
-         NULL,
          NULL,
          N'assets/images/monsters/AIDM_CENT-T001_Six_Giant_Centipedes_Illustration.png',
          N'Existing four-player party Alho Evro Sho Ralt uses real canonical state; player HP/AC deliberately not duplicated. Exact attack and save rolls for branches will be injected when executed.'),
@@ -141,7 +137,6 @@ BEGIN TRY
          N'{"expression":"1d4","faces":[4],"result":4}',
          NULL,
          N'{"environment":"deep damp filthy dungeon","geometry":"mocked","danger":"potential 4*8=32 independent attacks if all legal and act","surprise":"not rolled in original fixture","no_forced_battle":true}',
-         NULL,
          N'{"action":"FLEE","state":"PENDING_EXIT_HANDOFF","no_auto_escape":true,"source_story":"AIDM-DES-002.1"}',
          N'assets/images/monsters/AIDM_CRAW-T001_Four_Carrion_Crawlers_Illustration.png',
          N'Intentionally lethal stress scenario, not balanced. Starting HP rolls already fixed by historical source. No forced rescue, and flight is allowed. No new fabricated surprise outcomes.'),
@@ -161,7 +156,6 @@ BEGIN TRY
          N'{"environment":"dungeon masonry allowing spider camouflage","ceiling_walls":true,"no_webs":true,"fire_behaviour":"spiders may flee fire, never automatic numerical penalty","geometry":"mocked"}',
          NULL,
          NULL,
-         NULL,
          N'Spider illustration assets/images/monsters/AIDM_CRAB-T001_Four_Giant_Crab_Spiders_DRAFT.png remains unapproved due to party figures and webs; do not expose as approved asset. Fixed opposite surprise outcome from Troglodyte test.'),
         (N'TROG-T001',
          N'Five Troglodytes — rock-wall surprise and RETCHING',
@@ -179,13 +173,12 @@ BEGIN TRY
          N'{"environment":"stone dungeon rough rock walls, camouflage feasible","stench_exposure":"per-actor scene facts injected per test; no sourced radius, resave cadence or expiry","geometry":"mocked","player_may_attempt_parley":true}',
          NULL,
          NULL,
-         NULL,
          N'New fixed encounter: five Troglodytes vs established four adventurers. Surprise belongs to Encounter only, NOT combat. Troglodyte image not yet created; scene models actual exposure facts, not universal automatic stench. Exact combat/save d20 dice remain injectable. Owner-approved RETCHING state spelling: RETCHING.');
 
     DECLARE @Inserted TABLE ([ScenarioCode] NVARCHAR(80) NOT NULL);
 
-    INSERT INTO [Rules].[MonsterTestScenario]
-    ([ScenarioCode], [ScenarioName], [RulesetCode], [PrimaryMonsterCode], [FixtureRevision], [ScenarioStatus], [ReadyForExecution], [OriginReference], [MonsterCount], [PartyRosterJson], [MonsterRosterJson], [CountRollJson], [SurpriseJson], [SceneFactsJson], [TestCasesJson], [ExpectedHandoffJson], [IllustrationPath], [Notes])
+    INSERT INTO [Test].[MonsterTestScenario]
+    ([ScenarioCode], [ScenarioName], [RulesetCode], [PrimaryMonsterCode], [FixtureRevision], [ScenarioStatus], [ReadyForExecution], [OriginReference], [MonsterCount], [PartyRosterJson], [MonsterRosterJson], [CountRollJson], [SurpriseJson], [SceneFactsJson], [ExpectedHandoffJson], [IllustrationPath], [Notes])
     OUTPUT inserted.[ScenarioCode] INTO @Inserted([ScenarioCode])
     SELECT
         s.[ScenarioCode],
@@ -202,7 +195,6 @@ BEGIN TRY
         s.[CountRollJson],
         s.[SurpriseJson],
         s.[SceneFactsJson],
-        s.[TestCasesJson],
         s.[ExpectedHandoffJson],
         s.[IllustrationPath],
         s.[Notes]
@@ -210,7 +202,7 @@ BEGIN TRY
     WHERE NOT EXISTS
     (
         SELECT 1
-        FROM [Rules].[MonsterTestScenario] AS existing WITH (UPDLOCK, HOLDLOCK)
+        FROM [Test].[MonsterTestScenario] AS existing WITH (UPDLOCK, HOLDLOCK)
         WHERE existing.[ScenarioCode] = s.[ScenarioCode]
     );
 
@@ -230,7 +222,7 @@ SELECT [ScenarioCode], [ScenarioName], [PrimaryMonsterCode],
        CASE WHEN [SurpriseJson] IS NULL THEN N'NOT_ROLLED'
             ELSE N'FIXED' END AS [SurpriseStatus],
        [IllustrationPath]
-FROM [Rules].[MonsterTestScenario]
+FROM [Test].[MonsterTestScenario]
 WHERE [ScenarioCode] IN
     (N'ORC-T001-A', N'ORC-T001-B', N'CENT-T001',
      N'CRAW-T001', N'CRAB-T001', N'TROG-T001')
