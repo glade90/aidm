@@ -34,7 +34,7 @@ class CombatTurnIntent(BaseModel):
     """Additive, player-supplied CLAIMS only; server verifies every token/ID."""
 
     model_config = ConfigDict(extra="forbid")
-    kind: Literal["START", "ACTION", "VIEW_LOG"]
+    kind: Literal["START", "ACTION", "VIEW_LOG", "RESET"]
     encounter_id: str | None = None
     actor_id: str | None = None
     decision_token: str | None = None
@@ -58,8 +58,8 @@ class CombatTurnIntent(BaseModel):
             )
         ):
             raise ValueError("Combat ACTION requires current decision metadata")
-        if self.kind == "VIEW_LOG" and self.encounter_id is None:
-            raise ValueError("Combat VIEW_LOG requires encounter identifier")
+        if self.kind in ("VIEW_LOG", "RESET") and self.encounter_id is None:
+            raise ValueError("Combat VIEW_LOG or RESET requires encounter identifier")
         return self
 
 
@@ -87,7 +87,7 @@ class TurnRequest(BaseModel):
     @model_validator(mode="after")
     def require_text_at_action_time(self):
         # Preserve strict legacy request validation. START/VIEW_LOG are the
-        # only permitted typed read/initialisation turns without text.
+        # only permitted typed control turns without player prose.
         if (self.combat is None or self.combat.kind == "ACTION") and not self.message:
             raise ValueError("Player message required")
         return self
