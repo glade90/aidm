@@ -345,7 +345,27 @@ class CombatSessionService:
             if a["side_id"] != engine.definition.party.side.side_id
         }
         allowed = []
+        # Tied initiative commits one aggregate HP result for *all* attacks.
+        # That result is repeated on each MELEE_RESOLVED event, including
+        # misses. Gather casualties until the commit event, then announce
+        # them once at that boundary: never credit a miss with a defeat.
+        simultaneous_falls: set[str] = set()
         for e in events:
+            d = e.details
+            if e.kind == "MELEE_RESOLVED" and d.get("simultaneous") is True:
+                target_id = d.get("target_id")
+                if (d.get("hit") is True and type(d.get("damage")) is int
+                        and d["damage"] > 0 and d.get("hp_before", 0) > 0
+                        and d.get("hp_after") == 0
+                        and (target_id in player_ids or target_id in visible_foes)):
+                    simultaneous_falls.add(target_id)
+            committed_falls: list[str] = []
+            if e.kind == "SIMULTANEOUS_EXCHANGE_COMMITTED":
+                committed_falls = [
+                    player_ids.get(target, visible_foes.get(target, target))
+                    for target in sorted(simultaneous_falls)
+                ]
+                simultaneous_falls.clear()
             if e.seq <= after:
                 continue
             text = e.public_message
@@ -363,6 +383,11 @@ class CombatSessionService:
                     else "DEFEAT" if e.details.get("outcome") == "PARTY_DEFEAT"
                     else "END"
                 )
+            elif e.kind == "SIMULTANEOUS_EXCHANGE_COMMITTED" and committed_falls:
+                victims = ", ".join(committed_falls)
+                verb = "falls" if len(committed_falls) == 1 else "fall"
+                text = f"Simultaneous exchange resolves. {victims} {verb}"
+                cue = "FALL"
             if e.kind == "PHASE_CHECKPOINT":
                 label = e.details.get("status")
                 if label in ("SCENARIO_RULE_DISABLED", "STATIONARY_SCENARIO", "NOT_DUE",
@@ -380,15 +405,21 @@ class CombatSessionService:
                 # Never display a creature's exact HP in this projection.
                 target_id = d.get("target_id")
                 cue = "HIT" if d.get("hit") is True else "MISS"
-                if target_id in player_ids and d.get("hp_after") == 0 and d.get("hp_before", 0) > 0:
-                    text += f". {player_ids[target_id]} falls"
-                    cue = "FALL"
-                elif (target_id in visible_foes and d.get("hp_after") == 0
-                      and d.get("hp_before", 0) > 0):
-                    # Zero HP means defeated/incapacitated in this engine,
-                    # NOT an authoritative ruling on death vs unconsciousness.
-                    text += f". {visible_foes[target_id]} falls"
-                    cue = "FALL"
+                # Ordinary attack: an actual landed hit can defeat its target.
+                # Tied initiative: hp_before/after reflect the *aggregate*
+                # damage from the whole exchange, even for missed attacks.
+                # Those falls are reported on SIMULTANEOUS_EXCHANGE_COMMITTED.
+                if (d.get("simultaneous") is not True
+                        and d.get("hit") is True and d.get("damage", 0) > 0
+                        and d.get("hp_after") == 0
+                        and d.get("hp_before", 0) > 0):
+                    if target_id in player_ids:
+                        text += f". {player_ids[target_id]} falls"
+                        cue = "FALL"
+                    elif target_id in visible_foes:
+                        # Out of the fight is NOT a death vs unconscious ruling.
+                        text += f". {visible_foes[target_id]} falls"
+                        cue = "FALL"
                 roll = {
                     "attack_face": raw_attack["face"] if raw_attack else None,
                     "attack_die_id": raw_attack["die_id"] if raw_attack else None,
