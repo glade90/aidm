@@ -15,6 +15,7 @@ const ids = () => {
 function view(version = 0, { terminal = false, cursor = 4, events = [] } = {}) {
   return {
     encounter_id: "enc-approved-one",
+    intent_mode: "OFFLINE_SCRIPTED",
     state_version: version,
     current_round: terminal ? 2 : 1,
     phase_label: terminal ? "TERMINAL" : "MELEE",
@@ -197,5 +198,6 @@ test("journal renders only escaped text, ordered incremental entries and termina
   assert.ok(journal.children[0].textContent.includes(malicious));
   assert.match(dom.controls["party-outcome"].textContent, /Alho: 8\/8 HP/);
   assert.match(dom.controls["party-status"].textContent, /Evro: 0\/8 HP \(down\)/);
+  assert.match(dom.controls["combat-status"].textContent, /Offline scripted intentions/);
   assert.match(dom.controls["party-status"].textContent, /Sho-Rembo: 7\/9 HP/);
 });
