@@ -9,16 +9,16 @@ Purpose         : Normalized source-controlled test CASE definitions: one row
                   per expected behaviour/branch within a monster encounter.
 Target Server   : PEQUOD, SQL Server 2016+
 Database        : DnD
-Schema/Table    : Rules.MonsterTestCase
-Version         : 0.1.0 (DRAFT / OWNER REVIEW)
+Schema/Table    : Test.MonsterTestCase
+Version         : 0.2.0 (DRAFT / OWNER REVIEW)
 Created         : 2026-11-21
-Dependency      : Database/tables/MonsterTestScenario.sql
+Dependency      : Database/database/Test.sql; Database/tables/MonsterTestScenario.sql
 Seed            : Database/tables/inserts/MonsterTestCase_Mentzer_Basic_Insert.sql
 
 DESIGN
-- Parent Rules.MonsterTestScenario: ONE row per encounter, contains roster,
+- Parent Test.MonsterTestScenario: ONE row per encounter, contains roster,
   fixed precombat dice, scene and appearance assets.
-- Child Rules.MonsterTestCase: ONE row per test case, with stable TestCaseCode.
+- Child Test.MonsterTestCase: ONE row per test case, with stable TestCaseCode.
   Composite PK (ScenarioCode, TestCaseCode) permits reusing a generic test
   name for different scenarios without accidental overwrites.
 - Each test states explicit Given/When and Expected; optional injected dice
@@ -39,15 +39,15 @@ DESIGN
 USE [DnD];
 GO
 
-IF SCHEMA_ID(N'Rules') IS NULL
-    THROW 56592, 'Rules schema is missing. Run Database/database/Rules.sql.', 1;
-IF OBJECT_ID(N'Rules.MonsterTestScenario', N'U') IS NULL
-    THROW 56593, 'Create Rules.MonsterTestScenario before MonsterTestCase.', 1;
+IF SCHEMA_ID(N'Test') IS NULL
+    THROW 56592, 'Test schema is missing. Run Database/database/Test.sql.', 1;
+IF OBJECT_ID(N'Test.MonsterTestScenario', N'U') IS NULL
+    THROW 56593, 'Create Test.MonsterTestScenario before MonsterTestCase.', 1;
 GO
 
-IF OBJECT_ID(N'Rules.MonsterTestCase', N'U') IS NULL
+IF OBJECT_ID(N'Test.MonsterTestCase', N'U') IS NULL
 BEGIN
-    CREATE TABLE [Rules].[MonsterTestCase]
+    CREATE TABLE [Test].[MonsterTestCase]
     (
         [ScenarioCode]        NVARCHAR(80)   NOT NULL,
         [TestCaseCode]        NVARCHAR(80)   NOT NULL,
@@ -73,7 +73,7 @@ BEGIN
             PRIMARY KEY CLUSTERED ([ScenarioCode], [TestCaseCode]),
         CONSTRAINT [FK_MonsterTestCase_Scenario]
             FOREIGN KEY ([ScenarioCode])
-            REFERENCES [Rules].[MonsterTestScenario] ([ScenarioCode]),
+            REFERENCES [Test].[MonsterTestScenario] ([ScenarioCode]),
 
         CONSTRAINT [CK_MonsterTestCase_SequenceRevision]
             CHECK ([SequenceNo] > 0 AND [TestRevision] > 0),
@@ -90,12 +90,12 @@ BEGIN
     );
 
     CREATE UNIQUE NONCLUSTERED INDEX [UX_MonsterTestCase_Sequence]
-        ON [Rules].[MonsterTestCase] ([ScenarioCode], [SequenceNo]);
+        ON [Test].[MonsterTestCase] ([ScenarioCode], [SequenceNo]);
 
     CREATE NONCLUSTERED INDEX [IX_MonsterTestCase_PhaseStatus]
-        ON [Rules].[MonsterTestCase] ([TestPhase], [TestStatus], [ScenarioCode]);
+        ON [Test].[MonsterTestCase] ([TestPhase], [TestStatus], [ScenarioCode]);
 
-    PRINT N'Created Rules.MonsterTestCase (zero cases); definitions are not execution results.';
+    PRINT N'Created Test.MonsterTestCase (zero cases); definitions are not execution results.';
 END
 ELSE
 BEGIN
@@ -110,11 +110,11 @@ BEGIN
             (N'LinkedStoryRef'), (N'AutomatedTestRef'), (N'Notes'),
             (N'CreatedUtc'), (N'UpdatedUtc')
         ) AS required ([ColumnName])
-        WHERE COL_LENGTH(N'Rules.MonsterTestCase', required.[ColumnName]) IS NULL
+        WHERE COL_LENGTH(N'Test.MonsterTestCase', required.[ColumnName]) IS NULL
     )
         THROW 56594, 'Existing MonsterTestCase schema incompatible. Review data-preserving migration.', 1;
 
-    PRINT N'Rules.MonsterTestCase already exists; nothing changed.';
+    PRINT N'Test.MonsterTestCase already exists; nothing changed.';
 END;
 GO
 
@@ -122,6 +122,6 @@ GO
 SELECT [ScenarioCode], [TestCaseCode], [SequenceNo], [TestName],
        [TestPhase], [TestStatus], [TestRevision], [LinkedStoryRef],
        [AutomatedTestRef]
-FROM [Rules].[MonsterTestCase]
+FROM [Test].[MonsterTestCase]
 ORDER BY [ScenarioCode], [SequenceNo];
 GO
