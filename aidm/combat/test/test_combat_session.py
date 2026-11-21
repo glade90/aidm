@@ -102,6 +102,7 @@ def test_real_start_only_path_preserves_meta_contract_and_human_prompt():
         started = start(client)
         assert started["status"] == "NEEDS_PLAYER_INPUT"
         assert started["simulated"] is False and started["tool_outcome"] is None
+        assert started["combat"]["intent_mode"] == "OFFLINE_SCRIPTED"
         assert started["session_id"] == "s1"
         v = started["combat"]
         assert v["state_version"] == 0 and v["current_round"] == 1
@@ -338,6 +339,37 @@ def test_player_can_ask_if_orc_is_down_without_consuming_turn_or_dice():
         assert "Orc 1 is already down" in dead_target["message"]
         assert "Orc 2" in dead_target["message"]
         assert "Orc 1" not in dead_target["combat"]["next_decision"]["prompt"]
+        assert service._sessions["s1"].engine.snapshot() == before
+        assert sources[0].cursor == cursor
+
+
+def test_status_question_never_invokes_even_an_injected_llm():
+    class SpyLlm:
+        mode = "LIVE_LLM"
+
+        def __init__(self):
+            self.proposals = 0
+            self.narrations = 0
+
+        def propose(self, *, player_text, actor_id, allowed_targets):
+            self.proposals += 1
+            return "HOLD", None
+
+        def narrate(self, *, verified_events):
+            self.narrations += 1
+            return None
+
+    policy = SpyLlm()
+    app, service, sources = make_app(policy=policy)
+    with TestClient(app) as client:
+        first = start(client)
+        assert first["combat"]["intent_mode"] == "LIVE_LLM"
+        prior_proposals, prior_narrations = policy.proposals, policy.narrations
+        before = service._sessions["s1"].engine.snapshot()
+        cursor = sources[0].cursor
+        answer = act(client, first["combat"], "Is Orc 1 dead?", action_id="query-no-llm")
+        assert "Orc 1 is still in the fight" in answer["message"]
+        assert (policy.proposals, policy.narrations) == (prior_proposals, prior_narrations)
         assert service._sessions["s1"].engine.snapshot() == before
         assert sources[0].cursor == cursor
 
