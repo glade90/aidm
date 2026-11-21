@@ -278,6 +278,70 @@ def test_invalid_short_target_explains_error_without_consuming_die():
         assert service._sessions["s1"].engine.snapshot()["hp"]["orc-01"] == 6
 
 
+def test_visible_orc_falls_at_zero_hp_and_dm_announces_knockout():
+    # Owner's actual browser sequence: Alho 4 damage then Evro 4 damage
+    # against an Orc initially at 6 HP. Never silently remove the orc.
+    app, service, sources = make_app(faces=(6, 2, 19, 4, 12, 1))
+    with TestClient(app) as client:
+        initial = start(client)["combat"]
+        response = act(client, initial, "Attack Orc 1", action_id="fell-orc-1")
+        view = response["combat"]
+        assert response["status"] == "NEEDS_PLAYER_INPUT"
+        assert "Alho hits Orc 1 for 4 damage" in response["message"]
+        assert "Evro hits Orc 1 for 4 damage" in response["message"]
+        assert "Orc 1 falls" in response["message"]
+        assert any("Orc 1 falls" in e["text"]
+                   for e in view["new_log_entries"] if e["kind"] == "MELEE_RESOLVED")
+        assert "orc-01" not in view["next_decision"]["allowed_targets"]
+        assert "Orc 1" not in view["next_decision"]["prompt"]
+        assert service._sessions["s1"].engine.snapshot()["hp"]["orc-01"] == 0
+        assert next(a for a in service._sessions["s1"].engine.player_view()["actors"]
+                    if a["actor_id"] == "orc-01")["defeated"] is True
+        assert sources[0].cursor == 6
+        assert "hp_after" not in json.dumps(response)
+        assert "defender_ac" not in json.dumps(response)
+
+
+def test_player_can_ask_if_orc_is_down_without_consuming_turn_or_dice():
+    app, service, sources = make_app()
+    with TestClient(app) as client:
+        first = start(client)["combat"]
+        # Evro's 12+3 hit and 5+3 damage eliminates Orc 1 while
+        # Sho-Rembo is waiting to act. Orc 2 and 3 remain visible.
+        second = act(client, first, "HOLD", action_id="setup-kill")
+        assert "Orc 1 falls" in second["message"]
+        view = second["combat"]
+        assert view["next_decision"]["actor_id"] == "sho-rembo"
+        before = service._sessions["s1"].engine.snapshot()
+        count = len(service._sessions["s1"].engine.journal())
+        cursor = sources[0].cursor
+
+        answered = act(client, view, "IS orc 1 dead?", action_id="ask-status")
+        assert answered["status"] == "NEEDS_PLAYER_INPUT"
+        assert "Orc 1 is down and out of the fight" in answered["message"]
+        assert "Sho-Rembo" in answered["message"]
+        assert answered["combat"]["next_decision"] == view["next_decision"]
+        assert answered["combat"]["state_version"] == view["state_version"]
+        assert sources[0].cursor == cursor
+        assert service._sessions["s1"].engine.snapshot() == before
+        assert len(service._sessions["s1"].engine.journal()) == count
+        assert not any(x in json.dumps(answered)
+                       for x in ("hp_before", "hp_after", "defender_ac", "hidden_traits"))
+
+        still = act(client, view, "Is Orc 2 still alive?", action_id="ask-live")
+        assert "Orc 2 is still in the fight" in still["message"]
+        assert service._sessions["s1"].engine.snapshot() == before
+        assert sources[0].cursor == cursor
+
+        dead_target = act(client, view, "Orc 1", action_id="attack-defeated")
+        assert dead_target["status"] == "NEEDS_PLAYER_INPUT"
+        assert "Orc 1 is already down" in dead_target["message"]
+        assert "Orc 2" in dead_target["message"]
+        assert "Orc 1" not in dead_target["combat"]["next_decision"]["prompt"]
+        assert service._sessions["s1"].engine.snapshot() == before
+        assert sources[0].cursor == cursor
+
+
 def test_bad_actor_target_token_and_duplicate_action_never_roll():
     app, service, sources = make_app()
     with TestClient(app) as client:
