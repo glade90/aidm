@@ -11,7 +11,7 @@ Target Server   : PEQUOD (SQL Server default instance)
 Database        : DnD
 Schema          : Rules
 Table           : Rules.Monster
-Version         : 0.2.0 (DRAFT - OWNER REVIEW)
+Version         : 0.3.0 (DRAFT - OWNER REVIEW)
 Created         : 2026-11-21
 Last Modified   : 2026-11-21
 Dependencies    : Database/database/dnd.sql
@@ -39,15 +39,18 @@ DESIGN NOTES
   retains notation such as fractions or bonuses without lossy numeric casting.
 - Artwork paths identify approved static assets; image bytes are NOT stored in
   SQL. An illustration and a later map icon are independent presentation assets.
-- R1/R2 are the two semi-axis RADII of a horizontal elliptical footprint, in
-  feet; R1 >= R2. Z is the creature's approximate vertical HEIGHT in feet.
-  These are approximate shape metadata, NOT Mentzer collision, attack reach,
-  map grid, or blocking rules. SizeBasis records which measurements came
-  from descriptive source and which were explicitly estimated.
-- AIDM spatial convention: humans and humanoids default to a circle with
-  R1=5 ft and R2=5 ft (10-ft DIAMETER), unless approved otherwise. This is
-  OWNER HOUSE CONVENTION, not a published Mentzer dimension. It applies
-  to humans/other humanoid actor profiles beyond this monster catalogue.
+- D1/D2 are the FULL diameters (major/minor axes) of a horizontal elliptical
+  footprint, in feet; D1 >= D2. Z is approximate VERTICAL HEIGHT in feet.
+  These are descriptive spatial metadata, NOT Mentzer combat footprints,
+  collision, attack reach, grid occupancy, or blocking rules. SizeBasis
+  distinguishes source-described lengths from explicitly estimated widths.
+- AIDM owner modelling convention: all humans and humanoids have default
+  circular D1=5 ft and D2=5 ft (2.5-ft radii), unless approved otherwise.
+  This REPLACES the prior 5-ft-radius / 10-ft-diameter proposal. Orc Z=6 ft
+  is a size estimate; the convention is not a published Mentzer mechanic.
+- Existing Radius (v0.2) or SizeX/SizeY (v0.1) tables must be migrated by
+  Database/tables/migrations/Monster_Diameter_Footprint_v0_3_0.sql before
+  rerunning this CREATE script or the four-species seed.
 - B1 stocked monster names only select which species to review; do not import
   B1 encounter quantities, instance HP or module secrets as monster rules.
 - Initial create is NON-DESTRUCTIVE and contains NO monster inserts.
@@ -59,6 +62,8 @@ Date         Version   Description
 2026-11-21   0.1.0     Draft Rules.Monster schema for local owner review.
 2026-11-21   0.2.0     Replace X/Y footprint dimensions with R1/R2 ellipse
                         radii; Z remains vertical height.
+2026-11-21   0.3.0     Replace ellipse radii with D1/D2 FULL diameters,
+                        with owner-defined 5-ft-diameter humanoid default.
 ===============================================================================
 */
 
@@ -109,9 +114,9 @@ BEGIN
         [GeneralDescription]     NVARCHAR(MAX)  NOT NULL,
         [SpecialAttacksFeatures] NVARCHAR(MAX)  NOT NULL,
 
-        -- Optional future Geometry shape: horizontal oval radii R1/R2 and height Z (feet).
-        [R1Feet]               DECIMAL(9,2)   NULL,
-        [R2Feet]               DECIMAL(9,2)   NULL,
+        -- Optional future Geometry: horizontal oval FULL diameters D1/D2 and height Z (feet).
+        [D1Feet]               DECIMAL(9,2)   NULL,
+        [D2Feet]               DECIMAL(9,2)   NULL,
         [ZFeet]               DECIMAL(9,2)   NULL,
         [SizeBasis]               NVARCHAR(200)  NULL,
 
@@ -136,11 +141,11 @@ BEGIN
         CONSTRAINT [CK_Monster_XP]
             CHECK ([XPValue] IS NULL OR [XPValue] >= 0),
         CONSTRAINT [CK_Monster_Dimensions]
-            CHECK (([R1Feet] IS NULL OR [R1Feet] > 0)
-               AND ([R2Feet] IS NULL OR [R2Feet] > 0)
+            CHECK (([D1Feet] IS NULL OR [D1Feet] > 0)
+               AND ([D2Feet] IS NULL OR [D2Feet] > 0)
                AND ([ZFeet] IS NULL OR [ZFeet] > 0)
-               AND ([R1Feet] IS NULL OR [R2Feet] IS NULL
-                    OR [R1Feet] >= [R2Feet]))
+               AND ([D1Feet] IS NULL OR [D2Feet] IS NULL
+                    OR [D1Feet] >= [D2Feet]))
     );
 
     CREATE UNIQUE NONCLUSTERED INDEX [UX_Monster_OneActiveVersion]
@@ -212,7 +217,7 @@ BEGIN
        )
     BEGIN
         THROW 56501,
-            'Incompatible Rules.Monster exists. If still using SizeX/SizeY/SizeZ, run Monster_Ellipse_Footprint_v0_2_0.sql first.', 1;
+            'Incompatible Rules.Monster exists. If still using X/Y/Z or R1/R2/Z, run Monster_Diameter_Footprint_v0_3_0.sql first.', 1;
     END;
 
     PRINT N'Rules.Monster already exists; no data or schema changed.';
