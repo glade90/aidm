@@ -53,10 +53,8 @@ BEGIN TRY
         [LinkedStoryRef] NVARCHAR(80) NULL,
         [AutomatedTestRef] NVARCHAR(500) NULL,
         [Notes] NVARCHAR(MAX) NULL,
-        CONSTRAINT [PK_MonsterTestCaseSeed]
-            PRIMARY KEY ([ScenarioCode], [TestCaseCode]),
-        CONSTRAINT [UX_MonsterTestCaseSeedSeq]
-            UNIQUE ([ScenarioCode], [SequenceNo])
+        PRIMARY KEY ([ScenarioCode], [TestCaseCode]),
+        UNIQUE ([ScenarioCode], [SequenceNo])
     );
     INSERT INTO @Seed
     ([ScenarioCode], [TestCaseCode], [SequenceNo], [TestName], [TestPhase], [TestStatus], [TestRevision], [GivenText], [ExpectedText], [DiceFixtureJson], [AdditionalDataJson], [LinkedStoryRef], [AutomatedTestRef], [Notes])
