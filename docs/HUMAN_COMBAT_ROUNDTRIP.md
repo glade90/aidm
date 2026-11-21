@@ -121,3 +121,58 @@ Report source SHA, clean/dirty status, full JUnit counts, exact line coverage, r
 Owner's first PEQUOD 3v3 walkthrough verified actual side initiative, Orc attacks, Alho/Sho turns and third-round progression, but revealed three usability defects now addressed in this same draft PR: (1) the initial static notice incorrectly described **all** chat as simulated; (2) the DM simply answered 'Combat action accepted' while rules-resolved attacks occurred in a separate journal; (3) the offline parser accepted full `Alho attacks Orc 1` but rejected `Orc 1` and `1` after a specific pending target prompt. A reported Orc-first round applied 6 + 3 damage to Evro's 8 HP, legitimately incapacitating him before his agent turn. The UI now shows party HP throughout, and the public log/DM reports his fall. All public output derives from COSTA's engine: no synthetic successful roll, undeclared death mechanic or hidden opponent HP.
 
 **Regression:** `test_offline_target_shorthand_only_uses_pending_visible_target`, invalid/ambiguous shorthand, in-process HTTP shorthand→real combat, and an exact fixed-dice Orc-first Evro-0-HP fixture. Browser/Node test verifies safe live party HP and down label. Full PEQUOD source-matched Python/Node regression needs to be repeated after this correction; prior PASS receipts pertain to the preceding SHA.
+
+### Second owner browser walkthrough — visible Orc defeated and model transparency
+
+Owner verified a real random-roll encounter in which Alho hit Orc 1 for 4,
+Evro hit Orc 1 for another 4 and the orc disappeared from subsequent
+eligible-target prompts without an explicit defeat announcement. The engine
+correctly set its HP to zero, but the DM/public event projector only labelled
+**party** casualties. In the same pending human decision, `IS orc 1 dead?`
+was treated as an invalid attack instead of a question. Both are repaired in
+the typed `CombatSessionService` layer without changing COSTA's combat rules:
+a **visible** opponent going from positive HP to zero now causes the public
+melee event and DM summary to say `Orc 1 falls`; a narrow query such as
+`Is Orc 1 dead?` or `Is Orc 2 still alive?` returns the engine's
+player-visible `defeated` flag as `down and out of the fight` or
+`still in the fight`. These questions **never** consume the pending
+human action, dice, version or journal events, and do not call the optional
+LLM. An attack against Orc 1 after defeat gives an explicit `already down`
+response listing **only currently valid targets**, never an obsolete
+suggestion. The engine currently records `defeated`/zero HP, not a distinct
+authoritative `dead versus unconscious` state; the UI therefore does not
+invent that ruling or reveal opponents' exact HP.
+
+The browser now shows an honest `intent_mode` marker. **OFFLINE_SCRIPTED**
+(default) means **zero live model API calls** in the typed combat path:
+human text uses a small rule-based parser, Evro/orcs use explicitly scripted
+target intentions, and the DM's prose is a deterministic rendering of
+source-verified events. **Dice are still genuinely random**, drawn from the
+engine's `SystemRandomSource`, unless tests inject fixed faces. A separate
+**LIVE_LLM** mode is enabled only by the explicit environment flag
+`AIDM_LIVE_LLM=1` with a configured `AIDM_LLM_MODEL` and
+`OPENAI_API_KEY`. This currently calls the model only to propose **human
+intents** and narrate safe events, not to choose Evro/orc tactics or own
+combat rules. The browser label signals a configured integration, not
+proof of a successful paid provider call.
+
+**PowerShell example**, from a local development session (do not commit
+the key or paste it into a chat):
+
+```powershell
+$env:AIDM_LIVE_LLM = "1"
+$env:AIDM_LLM_MODEL = "<supported OpenAI model ID>"
+$secret = Read-Host -AsSecureString "OpenAI API key"
+$env:OPENAI_API_KEY = [System.Net.NetworkCredential]::new("", $secret).Password
+python -m uvicorn aidm.web.app:create_chat_app --factory --host 127.0.0.1 --port 8000
+# Afterwards:
+Remove-Item Env:OPENAI_API_KEY
+Remove-Item Env:AIDM_LIVE_LLM
+```
+
+The provider requires network access and may incur charges. The complete
+live LLM end-to-end encounter is **BON Iteration 2.4 UAT**; until explicitly
+observed, no one should claim the actual provider call passed. Regression
+tests cover (1) fixed-faces Alho 4 + Evro 4 defeat, (2) read-only question,
+(3) no dice/HP/journal change, (4) exact visible target only and (5) no
+private foe HP/AC exposed.
