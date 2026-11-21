@@ -12,9 +12,9 @@ const ids = () => {
   return (prefix) => `${prefix}-${++n}`;
 };
 
-function view(version = 0, { terminal = false, cursor = 4, events = [] } = {}) {
+function view(version = 0, { terminal = false, cursor = 4, events = [], encounterId = "enc-approved-one" } = {}) {
   return {
-    encounter_id: "enc-approved-one",
+    encounter_id: encounterId,
     intent_mode: "OFFLINE_SCRIPTED",
     state_version: version,
     current_round: terminal ? 2 : 1,
@@ -158,7 +158,7 @@ function makeDom() {
   const controls = {};
   const ids = [
     "chat-form", "player-message", "send-button", "transcript", "chat-panel",
-    "service-status", "combat-start", "combat-log", "combat-status",
+    "service-status", "combat-start", "combat-reset", "combat-log", "combat-status",
     "combat-board", "combat-events", "party-outcome", "party-status",
   ];
   for (const key of ids) controls[key] = new FakeElement();
@@ -296,4 +296,119 @@ test("DM multiline events keep carriage returns and auto-tail the real scroll co
     "Combat board auto-tails new events");
   assert.match(transcript.children.at(-1).children[1].textContent,
     /Alho hits Orc 1 for 4 damage\.\n💨 Evro misses Orc 1\./);
+});
+
+
+test("RESET uses Meta turn and server-supplied new encounter, never local fake combat", async () => {
+  const network = [];
+  const oldId = "enc-original";
+  const newerId = "enc-replacement";
+  const client = new ChatApiClient({
+    idFactory: ids(),
+    fetcher: async (url, options) => {
+      const data = JSON.parse(options.body);
+      network.push({ url, data });
+      const encountered = data.combat.kind === "RESET" ? newerId : oldId;
+      return fakeReply(data, view(0, { encounterId: encountered, cursor: 9 }), "NEEDS_PLAYER_INPUT");
+    },
+  });
+  const started = await client.startCombat();
+  assert.equal(started.combat.encounter_id, oldId);
+  const reset = await client.resetCombat();
+  assert.equal(reset.status, "NEEDS_PLAYER_INPUT");
+  assert.equal(reset.combat.encounter_id, newerId);
+  assert.equal(client.combatState.encounter_id, newerId);
+  assert.equal(client.actionUncertain, false);
+  assert.deepEqual(network.map(x => x.url), ["/api/turn", "/api/turn"]);
+  assert.equal(network[1].data.combat.kind, "RESET");
+  assert.equal(network[1].data.combat.encounter_id, oldId);
+  assert.equal(network[1].data.combat.log_since_sequence, 0);
+  assert.equal(Object.hasOwn(network[1].data, "message"), false);
+  assert.equal(network[0].data.session_id, network[1].data.session_id);
+  assert.notEqual(network[0].data.correlation_id, network[1].data.correlation_id);
+  const restartedLog = await client.viewCombatLog();
+  assert.equal(restartedLog.status, "NEEDS_PLAYER_INPUT");
+  assert.equal(network[2].data.combat.encounter_id, newerId);
+});
+
+test("RESET timeout preserves the previous state until a verified START re-sync", async () => {
+  const calls = [];
+  let newEncounter = false;
+  const client = new ChatApiClient({
+    idFactory: ids(),
+    fetcher: async (url, options) => {
+      const data = JSON.parse(options.body);
+      calls.push(data);
+      if (data.combat.kind === "RESET") {
+        newEncounter = true;
+        throw Error("Private network exception");
+      }
+      const encounterId = newEncounter ? "enc-recovered" : "enc-original";
+      return fakeReply(data, view(0, { encounterId }), "NEEDS_PLAYER_INPUT");
+    },
+  });
+  await client.startCombat();
+  const reset = await client.resetCombat();
+  assert.equal(reset.status, "ERROR");
+  assert.equal(client.combatState.encounter_id, "enc-original");
+  assert.equal(client.actionUncertain, true);
+  assert.equal((await client.send("Orc 1")).status, "BLOCKED");
+  assert.equal(calls.length, 2, "No combat ACTION submitted after uncertain reset");
+  const recovered = await client.startCombat();
+  assert.equal(recovered.combat.encounter_id, "enc-recovered");
+  assert.equal(client.actionUncertain, false);
+  assert.equal((await client.send("Orc 1")).status, "NEEDS_PLAYER_INPUT");
+  assert.equal(calls.at(-1).combat.encounter_id, "enc-recovered");
+});
+
+test("Reset combat button clears the prior transcript and journal only on confirmed new encounter", async () => {
+  const dom = makeDom();
+  const oldEvent = { seq: 1, round: 1, phase: "MELEE", kind: "MELEE_RESOLVED",
+    cue: "HIT", text: "Alho hits Orc 1 for 4 damage" };
+  const newEvent = { seq: 1, round: 1, phase: "INITIATIVE",
+    kind: "SIDE_INITIATIVE", cue: "INITIATIVE",
+    text: "Round 1 initiative: Party 6, Orcs 2 — Party wins initiative and acts first" };
+  let shouldFail = true;
+  const client = {
+    combatState: null,
+    async startCombat() {
+      this.combatState = view(1, { cursor: 7, events: [oldEvent], encounterId: "enc-old" });
+      return { status: "NEEDS_PLAYER_INPUT", message: "Old DM narration",
+        combat: this.combatState, simulated: false };
+    },
+    async resetCombat() {
+      if (shouldFail) return { status: "ERROR", message: "Reset uncertain",
+        combat: null, simulated: false };
+      this.combatState = view(0, { cursor: 1, events: [newEvent], encounterId: "enc-fresh" });
+      return { status: "NEEDS_PLAYER_INPUT", message: "Combat reset. Fresh fight.",
+        combat: this.combatState, simulated: false };
+    },
+  };
+  mountChat({ documentRef: dom, client });
+  const resetButton = dom.controls["combat-reset"];
+  assert.equal(resetButton.disabled, false, "Fake DOM defaults can differ from real HTML");
+  await dom.controls["combat-start"].listeners.click();
+  assert.equal(resetButton.disabled, false);
+  assert.equal(dom.controls["transcript"].children.length, 1);
+  assert.equal(dom.controls["combat-events"].children.length, 1);
+  assert.match(dom.controls["combat-events"].children[0].textContent, /Alho hits/);
+  await resetButton.listeners.click();
+  assert.equal(dom.controls["transcript"].children.length, 2,
+    "Uncertain reset must not erase old transcript");
+  assert.equal(dom.controls["combat-events"].children.length, 1);
+  assert.match(dom.controls["combat-events"].children[0].textContent, /Alho hits/);
+
+  shouldFail = false;
+  dom.controls["player-message"].value = "old action draft";
+  await resetButton.listeners.click();
+  assert.equal(dom.controls["player-message"].value, "");
+  assert.equal(dom.controls["transcript"].children.length, 1);
+  assert.match(dom.controls["transcript"].children[0].children[1].textContent, /Combat reset/);
+  assert.equal(dom.controls["combat-events"].children.length, 1);
+  assert.match(dom.controls["combat-events"].children[0].textContent, /initiative/i);
+  assert.equal(dom.controls["combat-status"].textContent.includes("Round 1"), true);
+  assert.equal(dom.controls["party-outcome"].textContent, "");
+  assert.equal(dom.controls["combat-reset"].disabled, false);
+  assert.equal(dom.controls["chat-panel"].scrollTop, dom.controls["chat-panel"].scrollHeight);
+  assert.equal(dom.controls["combat-board"].scrollTop, dom.controls["combat-board"].scrollHeight);
 });
