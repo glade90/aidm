@@ -389,6 +389,66 @@ def test_status_question_never_invokes_even_an_injected_llm():
         assert sources[0].cursor == cursor
 
 
+def test_tied_initiative_miss_does_not_take_credit_for_simultaneous_defeat():
+    # Owner browser defect: when initiative ties, the CombatEngine commits
+    # aggregate HP to every resolved attack event for a target. A missed blow
+    # can therefore have hp_before=6, hp_after=0 in the internal journal,
+    # but must NEVER be projected as 'Alho misses. Orc 1 falls'.
+    # Tie: 6=6. Alho rolls 2 (miss); Evro rolls 12 and 5, dealing 8
+    # to Orc 1 (6 HP). Other orcs miss on faces 1. Round 2 party wins
+    # initiative 6>2, leaving a new human pending decision.
+    faces = (6, 6, 2, 12, 5, 1, 1, 1, 6, 2)
+    app, service, sources = make_app(faces=faces)
+    with TestClient(app) as client:
+        first = start(client)["combat"]
+        assert first["next_decision"]["actor_id"] == "alho"
+        after_alho = act(client, first, "Orc 1", action_id="tie-alho")
+        assert after_alho["status"] == "NEEDS_PLAYER_INPUT"
+        assert after_alho["combat"]["next_decision"]["actor_id"] == "sho-rembo"
+        after_sho = act(client, after_alho["combat"], "HOLD", action_id="tie-sho")
+        assert after_sho["status"] == "NEEDS_PLAYER_INPUT"
+        view = after_sho["combat"]
+
+        resolved = [x for x in view["new_log_entries"] if x["kind"] == "MELEE_RESOLVED"]
+        miss = next(x for x in resolved if x["text"].startswith("Alho misses"))
+        assert miss["cue"] == "MISS"
+        assert "falls" not in miss["text"]
+        assert miss["roll"]["hit"] is False
+        assert miss["roll"]["damage_total"] == 0
+        evro = next(x for x in resolved if x["text"].startswith("Evro hits"))
+        assert evro["cue"] == "HIT"
+        assert evro["roll"]["damage_total"] == 8
+        assert "falls" not in evro["text"]
+
+        commits = [x for x in view["new_log_entries"]
+                   if x["kind"] == "SIMULTANEOUS_EXCHANGE_COMMITTED"]
+        assert len(commits) == 1
+        assert commits[0]["cue"] == "FALL"
+        assert "Orc 1 falls" in commits[0]["text"]
+        assert "Alho misses Orc 1" in after_sho["message"]
+        assert "💨" in after_sho["message"]
+        assert "Orc 1 falls" in after_sho["message"]
+        assert "💀" in after_sho["message"]
+        assert "Alho misses Orc 1. Orc 1 falls" not in after_sho["message"]
+        assert sum("Orc 1 falls" in e["text"]
+                   for e in view["new_log_entries"]) == 1
+        assert service._sessions["s1"].engine.snapshot()["hp"]["orc-01"] == 0
+        assert "orc-01" not in view["next_decision"]["allowed_targets"]
+        assert sources[0].cursor == len(faces)
+        response_text = json.dumps(after_sho)
+        assert "hp_before" not in response_text
+        assert "hp_after" not in response_text
+        assert "defender_ac" not in response_text
+
+        # The full audit projection agrees, and VIEW_LOG is truly read-only.
+        before = service._sessions["s1"].engine.snapshot()
+        audit = log(client, view)["combat"]["new_log_entries"]
+        assert sum("Orc 1 falls" in e["text"] for e in audit) == 1
+        assert next(x for x in audit if x["text"].startswith("Alho misses"))["cue"] == "MISS"
+        assert service._sessions["s1"].engine.snapshot() == before
+        assert sources[0].cursor == len(faces)
+
+
 def test_safe_combat_event_cue_schema_rejects_unrecognised_hints():
     from pydantic import ValidationError
     from aidm.meta.turn import CombatLogView
