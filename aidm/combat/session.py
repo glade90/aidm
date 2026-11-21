@@ -392,7 +392,11 @@ class CombatSessionService:
                     verdict = (
                         "Initiative tied — both sides act simultaneously"
                         if left_face == right_face
-                        else f"{left_name if left_face > right_face else right_name} wins initiative and acts first"
+                        else (
+                            f"{left_name if left_face > right_face else right_name} "
+                            f"{'wins' if left_face > right_face else 'win'} initiative and "
+                            f"{'acts' if left_face > right_face else 'act'} first"
+                        )
                     )
                     text = (f"Round {e.round_index} initiative: "
                             f"{left_name} {left_face}, {right_name} {right_face} — {verdict}")
