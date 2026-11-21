@@ -159,16 +159,42 @@ class CombatSessionService:
         kind = body.get("kind")
         if kind == "START":
             return self._start(request)
+        if kind == "RESET":
+            return self._reset(request)
         if kind not in ("ACTION", "VIEW_LOG"):
             return safe_failure(request, ErrorCode.UNKNOWN_CAPABILITY, status=ResultStatus.BLOCKED)
+        # Keep lookup and dispatch under the same session-map lock used by
+        # RESET. A stale ACTION must never mutate a replaced encounter after
+        # checking its previous encounter id.
         with self._lock:
             current = self._sessions.get(request.session_id)
-        if current is None or body.get("encounter_id") != current.encounter_id:
-            return safe_failure(request, ErrorCode.UNAUTHORISED, status=ResultStatus.BLOCKED)
-        with current.lock:
-            if kind == "VIEW_LOG":
-                return self._result(request, current, body, message="Combat journal retrieved.", read_only=True)
-            return self._action(request, current, body)
+            if current is None or body.get("encounter_id") != current.encounter_id:
+                return safe_failure(request, ErrorCode.UNAUTHORISED, status=ResultStatus.BLOCKED)
+            with current.lock:
+                if kind == "VIEW_LOG":
+                    return self._result(request, current, body, message="Combat journal retrieved.", read_only=True)
+                return self._action(request, current, body)
+
+    def _fresh_encounter(self, session_id: str) -> _ActiveEncounter:
+        """Construct a new real engine and independent roll source; no reuse."""
+        fixture = canonical_three_vs_three()
+        definition = fixture.encounter
+        dice = canonical_dice_kit(definition)
+        encounter_id = f"enc-{uuid4().hex}"
+        definition = replace(definition, encounter_id=encounter_id)
+        profile = self._rule_profile_factory()
+        if not isinstance(profile, RuleProfile):
+            raise ValueError("The configured combat rules profile is unavailable")
+        surprise = SurpriseResult(
+            SurpriseKind.NONE, encounter_id, "ENCOUNTER_AGENT",
+            "approved-synthetic-surprise-none", profile.profile_id,
+        )
+        engine = CombatEngine(
+            definition, surprise=surprise,
+            roller=DiceRoller(self._source_factory()), dice=dice,
+            profile=profile, session_id=session_id,
+        )
+        return _ActiveEncounter(engine, encounter_id, RLock(), set())
 
     def _start(self, request: InternalRequest) -> InternalResult:
         body = request.payload["combat"]
@@ -177,31 +203,44 @@ class CombatSessionService:
         with self._lock:
             current = self._sessions.get(request.session_id)
             if current is None:
-                fixture = canonical_three_vs_three()
-                definition = fixture.encounter
-                dice = canonical_dice_kit(definition)
-                encounter_id = f"enc-{uuid4().hex}"
-                definition = replace(definition, encounter_id=encounter_id)
-                profile = self._rule_profile_factory()
-                if not isinstance(profile, RuleProfile):
+                try:
+                    current = self._fresh_encounter(request.session_id)
+                except Exception:
                     return safe_failure(request, ErrorCode.INTERNAL_ERROR)
-                surprise = SurpriseResult(
-                    SurpriseKind.NONE, encounter_id, "ENCOUNTER_AGENT",
-                    "approved-synthetic-surprise-none", profile.profile_id,
-                )
-                engine = CombatEngine(
-                    definition, surprise=surprise,
-                    roller=DiceRoller(self._source_factory()), dice=dice,
-                    profile=profile, session_id=request.session_id,
-                )
-                current = _ActiveEncounter(engine, encounter_id, RLock(), set())
                 self._sessions[request.session_id] = current
-        with current.lock:
-            self._advance(current)
-            return self._result(
-                request, current, body,
-                message="Combat begins: Alho, Evro and Sho face three visible orcs.",
-            )
+            with current.lock:
+                self._advance(current)
+                return self._result(
+                    request, current, body,
+                    message="Combat begins: Alho, Evro and Sho face three visible orcs.",
+                )
+
+    def _reset(self, request: InternalRequest) -> InternalResult:
+        """Replace only the named active encounter; never reset another session.
+
+        An old encounter id cannot reset an unrelated/newer encounter. The
+        old action ids, decision tokens, HP, journal and RNG do not carry over.
+        START remains idempotent, while RESET explicitly creates a new fight.
+        """
+        body = request.payload["combat"]
+        with self._lock:
+            current = self._sessions.get(request.session_id)
+            if (current is None or not isinstance(body.get("encounter_id"), str)
+                    or body["encounter_id"] != current.encounter_id):
+                return safe_failure(request, ErrorCode.UNAUTHORISED, status=ResultStatus.BLOCKED)
+            with current.lock:
+                try:
+                    fresh = self._fresh_encounter(request.session_id)
+                except Exception:
+                    return safe_failure(request, ErrorCode.INTERNAL_ERROR)
+                self._sessions[request.session_id] = fresh
+                with fresh.lock:
+                    self._advance(fresh)
+                    return self._result(
+                        request, fresh, body,
+                        message="Combat reset. A fresh 3 vs 3 encounter begins: "
+                                "Alho, Evro and Sho face three visible orcs.",
+                    )
 
     def _action(self, request: InternalRequest, current: _ActiveEncounter,
                 body: Mapping[str, Any]) -> InternalResult:
