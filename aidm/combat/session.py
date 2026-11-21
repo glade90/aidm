@@ -61,6 +61,35 @@ class IntentPolicy(Protocol):
     def narrate(self, *, verified_events: tuple[str, ...]) -> str | None: ...
 
 
+def _exact_human_combat_choice(
+    player_text: str, allowed_targets: tuple[str, ...],
+) -> tuple[str, str | None] | None:
+    """Resolve unambiguous UI shortcuts without an LLM (or a dice roll).
+
+    None means natural language requiring the injected interpreter. A known
+    but unavailable numeric target must be rejected here, NEVER sent to an
+    LLM that could silently redirect the attack to another surviving foe.
+    The authoritative controller still verifies legality after this step.
+    """
+    text = player_text.strip().casefold()
+    if text == "hold":
+        return "HOLD", None
+    if text in allowed_targets:
+        return "ATTACK_MELEE", text
+    number = re.fullmatch(r"(?:orc[ -]?)?([0-9]+)", text)
+    if number is None:
+        return None
+    # Avoid unbounded decimal-to-int conversion and retain arbitrary exact
+    # target IDs without guessing a new numbered opponent.
+    digits = number.group(1).lstrip("0")
+    if not digits:
+        return "NEEDS_CLARIFICATION", None
+    candidate = f"orc-{digits.zfill(2)}"
+    if candidate in allowed_targets:
+        return "ATTACK_MELEE", candidate
+    return "NEEDS_CLARIFICATION", None
+
+
 class ScriptedIntentPolicy:
     """Offline, conservative human-input parser; all choices still engine-validated."""
 
@@ -68,22 +97,12 @@ class ScriptedIntentPolicy:
 
     def propose(self, *, player_text: str, actor_id: str,
                 allowed_targets: tuple[str, ...]) -> tuple[str, str | None]:
+        exact = _exact_human_combat_choice(player_text, allowed_targets)
+        if exact is not None:
+            return exact
         text = player_text.strip().casefold()
-        if text in ("hold", "wait", "pass", "stand firm", "skip", "defend"):
+        if text in ("wait", "pass", "stand firm", "skip", "defend"):
             return "HOLD", None
-
-        # The active DM prompt has already established WHO acts and that the
-        # choice is a melee target. A short answer is an attack intention, not
-        # a request to invent a new mechanic. Resolve only an exact visible
-        # target ID/name/number; ambiguous or unlisted targets fail closed.
-        shorthand = re.fullmatch(r"(?:orc[ -]?)?0*([1-9][0-9]*)", text)
-        if shorthand is not None:
-            candidate = f"orc-{int(shorthand.group(1)):02d}"
-            if candidate in allowed_targets:
-                return "ATTACK_MELEE", candidate
-            return "NEEDS_CLARIFICATION", None
-        if text in allowed_targets:
-            return "ATTACK_MELEE", text
         if re.search(r"\b(cast|spell|shoot|bow|arrow|move|run|retreat|switch|equip|draw|morale)\b", text):
             return "UNSUPPORTED_RULE", None
         if not re.search(r"\b(attack|attacks|hit|strike|swing|slash|flail)\b", text):
@@ -292,14 +311,22 @@ class CombatSessionService:
                 request, current, body, message=answer,
                 status=ResultStatus.NEEDS_PLAYER_INPUT, read_only=True,
             )
-        try:
-            action, target = self._policy.propose(
-                player_text=player_text, actor_id=pending.actor_id,
-                allowed_targets=pending.allowed_targets,
-            )
-        except Exception:
-            return self._result(request, current, body, error_code=ErrorCode.DEPENDENCY_UNAVAILABLE,
-                                status=ResultStatus.ERROR, read_only=True)
+        # UI promises exact target names/numbers and HOLD. Resolve those
+        # deterministically for ALL modes, including LIVE_LLM: model output
+        # may not reliably parse a bare "1" and must not redirect an invalid
+        # or already-defeated numbered target to some other living creature.
+        exact = _exact_human_combat_choice(player_text, pending.allowed_targets)
+        if exact is not None:
+            action, target = exact
+        else:
+            try:
+                action, target = self._policy.propose(
+                    player_text=player_text, actor_id=pending.actor_id,
+                    allowed_targets=pending.allowed_targets,
+                )
+            except Exception:
+                return self._result(request, current, body, error_code=ErrorCode.DEPENDENCY_UNAVAILABLE,
+                                    status=ResultStatus.ERROR, read_only=True)
         if action == "UNSUPPORTED_RULE":
             return self._result(request, current, body, error_code=ErrorCode.UNSUPPORTED_RULE,
                                 status=ResultStatus.NEEDS_RULING, read_only=True)
