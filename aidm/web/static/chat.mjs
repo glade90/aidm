@@ -4,6 +4,14 @@
  */
 import { ChatApiClient } from "./client.mjs";
 
+// These symbols are presentation-only. The server supplies a validated cue
+// derived from real CombatEngine events; the DOM never diagnoses hit/HP/death.
+const COMBAT_CUE_SYMBOLS = Object.freeze({
+  HIT: "⚔️", MISS: "💨", FALL: "💀", HOLD: "✋",
+  ROUND: "🔄", INITIATIVE: "🎲",
+  VICTORY: "🏆", DEFEAT: "💔", END: "🏁",
+});
+
 export function mountChat({
   documentRef = globalThis.document,
   client = new ChatApiClient(),
@@ -68,7 +76,8 @@ export function mountChat({
     if (partyStatus && Array.isArray(view.party_status)) {
       partyStatus.textContent = view.party_status.map((actor) => {
         const down = actor.hp_current === 0 ? " (down)" : "";
-        return `${actor.name}: ${actor.hp_current}/${actor.hp_max} HP${down}`;
+        const marker = actor.hp_current === 0 ? "💀 " : "";
+        return `${marker}${actor.name}: ${actor.hp_current}/${actor.hp_max} HP${down}`;
       }).join(" · ");
     }
     if (logButton) logButton.disabled = pending;
@@ -85,7 +94,9 @@ export function mountChat({
       if (!Number.isInteger(entry.seq) || shownEvents.has(entry.seq)) continue;
       shownEvents.add(entry.seq);
       const item = documentRef.createElement("li");
-      let text = `R${entry.round} · ${entry.phase}: ${entry.text}`;
+      const cue = Object.hasOwn(COMBAT_CUE_SYMBOLS, entry.cue)
+        ? COMBAT_CUE_SYMBOLS[entry.cue] + " " : "";
+      let text = `${cue}R${entry.round} · ${entry.phase}: ${entry.text}`;
       const roll = entry.roll;
       if (roll && Number.isInteger(roll.attack_face)) {
         text += ` | d20 ${roll.attack_face} + ${roll.attack_modifier} = ${roll.attack_total}`;
@@ -101,7 +112,9 @@ export function mountChat({
       const party = (view.surviving_party_summary ?? [])
         .map((actor) => `${actor.name}: ${actor.hp_current}/${actor.hp_max} HP`)
         .join(" · ");
-      partyOutcome.textContent = `Outcome: ${view.outcome ?? "unknown"} · ${party}`;
+      const icon = view.outcome === "PARTY_VICTORY" ? "🏆"
+        : view.outcome === "PARTY_DEFEAT" ? "💔" : "🏁";
+      partyOutcome.textContent = `${icon} Outcome: ${view.outcome ?? "unknown"} · ${party}`;
     }
   }
 
