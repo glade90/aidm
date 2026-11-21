@@ -11,7 +11,7 @@ Target Server   : PEQUOD (SQL Server default instance)
 Database        : DnD
 Schema          : Rules
 Table           : Rules.Monster
-Version         : 0.1.0 (DRAFT - OWNER REVIEW)
+Version         : 0.2.0 (DRAFT - OWNER REVIEW)
 Created         : 2026-11-21
 Last Modified   : 2026-11-21
 Dependencies    : Database/database/dnd.sql
@@ -39,8 +39,15 @@ DESIGN NOTES
   retains notation such as fractions or bonuses without lossy numeric casting.
 - Artwork paths identify approved static assets; image bytes are NOT stored in
   SQL. An illustration and a later map icon are independent presentation assets.
-- Size X/Y/Z is a nullable APPROXIMATE body bounding box in feet, not a grid
-  occupancy, reach or collision rule. SizeBasis records its provenance.
+- R1/R2 are the two semi-axis RADII of a horizontal elliptical footprint, in
+  feet; R1 >= R2. Z is the creature's approximate vertical HEIGHT in feet.
+  These are approximate shape metadata, NOT Mentzer collision, attack reach,
+  map grid, or blocking rules. SizeBasis records which measurements came
+  from descriptive source and which were explicitly estimated.
+- AIDM spatial convention: humans and humanoids default to a circle with
+  R1=5 ft and R2=5 ft (10-ft DIAMETER), unless approved otherwise. This is
+  OWNER HOUSE CONVENTION, not a published Mentzer dimension. It applies
+  to humans/other humanoid actor profiles beyond this monster catalogue.
 - B1 stocked monster names only select which species to review; do not import
   B1 encounter quantities, instance HP or module secrets as monster rules.
 - Initial create is NON-DESTRUCTIVE and contains NO monster inserts.
@@ -50,6 +57,8 @@ CHANGE LOG
 Date         Version   Description
 -----------  --------  ------------------------------------------------------
 2026-11-21   0.1.0     Draft Rules.Monster schema for local owner review.
+2026-11-21   0.2.0     Replace X/Y footprint dimensions with R1/R2 ellipse
+                        radii; Z remains vertical height.
 ===============================================================================
 */
 
@@ -100,10 +109,10 @@ BEGIN
         [GeneralDescription]     NVARCHAR(MAX)  NOT NULL,
         [SpecialAttacksFeatures] NVARCHAR(MAX)  NOT NULL,
 
-        -- Optional future Geometry dimensions, local axes, measured in feet.
-        [SizeXFeet]               DECIMAL(9,2)   NULL,
-        [SizeYFeet]               DECIMAL(9,2)   NULL,
-        [SizeZFeet]               DECIMAL(9,2)   NULL,
+        -- Optional future Geometry shape: horizontal oval radii R1/R2 and height Z (feet).
+        [R1Feet]               DECIMAL(9,2)   NULL,
+        [R2Feet]               DECIMAL(9,2)   NULL,
+        [ZFeet]               DECIMAL(9,2)   NULL,
         [SizeBasis]               NVARCHAR(200)  NULL,
 
         -- Paths to approved original static assets (not file bytes).
@@ -127,9 +136,11 @@ BEGIN
         CONSTRAINT [CK_Monster_XP]
             CHECK ([XPValue] IS NULL OR [XPValue] >= 0),
         CONSTRAINT [CK_Monster_Dimensions]
-            CHECK (([SizeXFeet] IS NULL OR [SizeXFeet] > 0)
-               AND ([SizeYFeet] IS NULL OR [SizeYFeet] > 0)
-               AND ([SizeZFeet] IS NULL OR [SizeZFeet] > 0))
+            CHECK (([R1Feet] IS NULL OR [R1Feet] > 0)
+               AND ([R2Feet] IS NULL OR [R2Feet] > 0)
+               AND ([ZFeet] IS NULL OR [ZFeet] > 0)
+               AND ([R1Feet] IS NULL OR [R2Feet] IS NULL
+                    OR [R1Feet] >= [R2Feet]))
     );
 
     CREATE UNIQUE NONCLUSTERED INDEX [UX_Monster_OneActiveVersion]
@@ -201,7 +212,7 @@ BEGIN
        )
     BEGIN
         THROW 56501,
-            'Incompatible Rules.Monster exists. Review a data-preserving migration.', 1;
+            'Incompatible Rules.Monster exists. If still using SizeX/SizeY/SizeZ, run Monster_Ellipse_Footprint_v0_2_0.sql first.', 1;
     END;
 
     PRINT N'Rules.Monster already exists; no data or schema changed.';
