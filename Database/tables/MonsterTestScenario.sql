@@ -11,7 +11,7 @@ Target Server   : PEQUOD, SQL Server 2016+ (JSON support)
 Database        : DnD
 Schema          : Rules
 Table           : Rules.MonsterTestScenario
-Version         : 0.1.0 (DRAFT FOR OWNER REVIEW)
+Version         : 0.2.0 (DRAFT FOR OWNER REVIEW)
 Created         : 2026-11-21
 Dependencies    : Database/database/dnd.sql, Database/database/Rules.sql;
                   Database/tables/Monster.sql v0.4 for source monster contracts.
@@ -29,8 +29,12 @@ DATA MODEL
   but is NULL where surprise was never rolled.
 - SceneFactsJson holds explicit environment/exposure facts; per-actor
   Troglodyte stench exposure is supplied by each independent Combat test.
-  TestCasesJson is a JSON array of test IDs, Given/When/Expected criteria.
-  The active deterministic harness validates JSON shape and references.
+- TestCasesJson is a NULLABLE DEPRECATED LEGACY field: old encounter rows
+  may still hold their former case arrays for audit. New rows leave it NULL.
+  The ONLY editable/canonical case definitions now live as normalized rows
+  in Rules.MonsterTestCase (FK ScenarioCode), independent of encounter data.
+  To upgrade an existing v0.1 table, use the v0.2 normalization migration
+  to populate child cases before making TestCasesJson nullable.
 - The containing table enforces SQL JSON validity (SQL Server 2016 ISJSON)
   and simple bounds; referential/version resolution of MonsterCode is in
   the application because Rules.Monster is date-versioned. NULL means UNKNOWN.
@@ -76,7 +80,7 @@ BEGIN
         [CountRollJson]         NVARCHAR(MAX)  NULL,
         [SurpriseJson]          NVARCHAR(MAX)  NULL,
         [SceneFactsJson]        NVARCHAR(MAX)  NOT NULL,
-        [TestCasesJson]         NVARCHAR(MAX)  NOT NULL,
+        [TestCasesJson]         NVARCHAR(MAX)  NULL,
         [ExpectedHandoffJson]   NVARCHAR(MAX)  NULL,
         [IllustrationPath]      NVARCHAR(500)  NULL,
         [Notes]                 NVARCHAR(MAX)  NULL,
@@ -104,7 +108,7 @@ BEGIN
                 ISJSON([PartyRosterJson]) = 1
                 AND ISJSON([MonsterRosterJson]) = 1
                 AND ISJSON([SceneFactsJson]) = 1
-                AND ISJSON([TestCasesJson]) = 1
+                AND ([TestCasesJson] IS NULL OR ISJSON([TestCasesJson]) = 1)
                 AND ([CountRollJson] IS NULL OR ISJSON([CountRollJson]) = 1)
                 AND ([SurpriseJson] IS NULL OR ISJSON([SurpriseJson]) = 1)
                 AND ([ExpectedHandoffJson] IS NULL OR ISJSON([ExpectedHandoffJson]) = 1)
