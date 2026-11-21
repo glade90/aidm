@@ -89,7 +89,7 @@ BEGIN TRY
             5.00, 5.00, 6.00,
             N'Owner default 5ft-diameter circular humanoid footprint; estimated 6ft height. Mentzer provides no Troglodyte dimensions.',
             NULL, NULL,
-            N'Encounter fixture TROG-T001: 5 Troglodytes, HP [15,12,9,13,11], party Alho/Evro/Sho/Ralt; party surprise d6=4 (surprised via 1-4 rule), monster side d6=3 (not surprised via normal 1-2). These facts belong to TEST/ENCOUNTER OneNote, not the species row. Original monster artwork is not yet created. RETCHING is a new distinct state label for stench. Preserve unresolved exposure/expiry rulings.'
+            N'Original monster artwork not yet created. This is a reusable species definition only: encounter count, rolled HP, party, surprise die faces and test cases live in separate OneNote pages. RETCHING is a distinct stench-effect state label; exposure/resaving/expiry remain unresolved pending Encounter and Rules review.'
         );
         PRINT N'Inserted SourceChecked inactive Troglodyte species definition.';
     END
