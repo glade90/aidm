@@ -35,6 +35,14 @@ from aidm.internal_messages import (
 
 _IDENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
 _TURN_LIMIT = 128
+# Questions are read-only even when the browser is awaiting a combat ACTION.
+# Interpret no general natural language here: only narrow status questions.
+_ORC_STATUS_QUESTION = re.compile(
+    r"(?:is|was)\s+(?:the\s+)?orc[ -]?0*([1-9][0-9]*)\s+"
+    r"(?:dead|down|defeated|alive|still\s+alive)\s*\??",
+    re.IGNORECASE,
+)
+_ORC_TARGET_ONLY = re.compile(r"(?:orc[ -]?)?0*([1-9][0-9]*)", re.IGNORECASE)
 
 
 class IntentPolicy(Protocol):
@@ -208,6 +216,27 @@ class CombatSessionService:
         if not isinstance(player_text, str) or not player_text.strip():
             return self._result(request, current, body, error_code=ErrorCode.INVALID_INPUT,
                                 status=ResultStatus.NEEDS_PLAYER_INPUT, read_only=True)
+        # A status question is NOT an attack and consumes no decision/dice.
+        # Query only the engine's *player-visible* defeated flag (never foe HP).
+        status_question = _ORC_STATUS_QUESTION.fullmatch(player_text.strip())
+        if status_question is not None:
+            target_id = f"orc-{int(status_question.group(1)):02d}"
+            actors = engine.player_view()["actors"]
+            visible_foes = {
+                actor["actor_id"]: actor
+                for actor in actors if actor["side_id"] != engine.definition.party.side.side_id
+            }
+            foe = visible_foes.get(target_id)
+            if foe is None:
+                answer = "I cannot confirm the status of that opponent."
+            elif foe["defeated"]:
+                answer = f"{foe['name']} is down and out of the fight."
+            else:
+                answer = f"{foe['name']} is still in the fight."
+            return self._result(
+                request, current, body, message=answer,
+                status=ResultStatus.NEEDS_PLAYER_INPUT, read_only=True,
+            )
         try:
             action, target = self._policy.propose(
                 player_text=player_text, actor_id=pending.actor_id,
@@ -295,6 +324,12 @@ class CombatSessionService:
             a.encounter_actor_id: a.display_name
             for a in engine.definition.party.members
         }
+        # The engine's player view is the only source of *visible* creature
+        # names. Never announce unseen monster identities or exact foe HP.
+        visible_foes = {
+            a["actor_id"]: a["name"] for a in engine.player_view()["actors"]
+            if a["side_id"] != engine.definition.party.side.side_id
+        }
         allowed = []
         for e in events:
             if e.seq <= after:
@@ -319,6 +354,11 @@ class CombatSessionService:
                 target_id = d.get("target_id")
                 if target_id in player_ids and d.get("hp_after") == 0 and d.get("hp_before", 0) > 0:
                     text += f". {player_ids[target_id]} falls"
+                elif (target_id in visible_foes and d.get("hp_after") == 0
+                      and d.get("hp_before", 0) > 0):
+                    # Zero HP means defeated/incapacitated in this engine,
+                    # NOT an authoritative ruling on death vs unconsciousness.
+                    text += f". {visible_foes[target_id]} falls"
                 roll = {
                     "attack_face": raw_attack["face"] if raw_attack else None,
                     "attack_die_id": raw_attack["die_id"] if raw_attack else None,
@@ -404,10 +444,25 @@ class CombatSessionService:
         if status is ResultStatus.ERROR:
             summary = "Combat result is uncertain; inspect the current log before any retry."
         elif error_code is ErrorCode.INVALID_INPUT:
-            summary = (
-                "I couldn't identify a single legal target. Reply with its name "
-                "(such as Orc 1), its number (1), or HOLD."
+            allowed = pending.allowed_targets if pending else ()
+            visible = {
+                a["actor_id"]: a for a in engine.player_view()["actors"]
+                if a["side_id"] != engine.definition.party.side.side_id
+            }
+            requested = _ORC_TARGET_ONLY.fullmatch(
+                str(request.payload.get("message", "")).strip()
             )
+            target_id = (f"orc-{int(requested.group(1)):02d}"
+                         if requested is not None else None)
+            if target_id in visible and visible[target_id]["defeated"]:
+                summary = f"{visible[target_id]['name']} is already down and cannot be targeted."
+            else:
+                summary = "I couldn't identify a single legal target."
+            choices = [visible[t]["name"] for t in allowed if t in visible]
+            if choices:
+                summary += f" Choose from {', '.join(choices)} by name or number, or HOLD."
+            else:
+                summary += " Say HOLD or ask for clarification."
         elif error_code is ErrorCode.STATE_VERSION_CONFLICT:
             summary = "That combat decision is no longer current; inspect the combat log."
         elif error_code is ErrorCode.UNSUPPORTED_RULE and status is ResultStatus.NEEDS_RULING:
