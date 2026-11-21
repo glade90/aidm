@@ -277,3 +277,30 @@ Python tests exercise reset while active, fresh HP/engine/roll source/log/ID, cr
 ### Reset test correction — 21 November 2026
 
 PEQUOD focused pytest reported 46 passed / 1 failed in test_reset_creates_new_canonical_engine_while_preserving_session_identity. The test incorrectly expected the new decision_token string always to differ from the previous encounter. COSTA's deterministic CombatEngine token is derived from session ID, round, version, event count and actor, which can be identical immediately after RESET. This is not a proof of stale ACTION acceptance: Meta / CombatSessionService requires and verifies the *current encounter_id* before accepting a decision, so an old encounter ID is rejected even if the token text happens to recur. The test now checks that the new decision token exists and relies on the separate stale-action regression to prove encounter isolation. Production rules, dice and state transitions were not modified; the reset code docstring was clarified. Owner must repeat source-matched focused pytest and full runner before signing off. No latest-head PASS claimed.
+
+
+### Live LLM configuration through root .env (21 November 2026)
+
+Earlier builds read AIDM_LIVE_LLM and AIDM_LLM_MODEL directly from os.environ, so putting them only in the local developer .env silently left the application offline. The corrected code loads both public live settings through COSTA's validated load_config, which uses .env in development mode with process-environment precedence. Only when live mode is enabled does the FastAPI factory explicitly load the OPENAI_API_KEY secret; no credentials are read at module import and there is no network call until a live intent/narration request is performed.
+
+Create a Git-ignored file C:\Development\aidm\.env, containing for example:
+
+    AIDM_LIVE_LLM=1
+    AIDM_LLM_MODEL=gpt-4.1-mini
+    OPENAI_API_KEY=<your privately supplied OpenAI API key>
+
+Launch Uvicorn with the current working directory at C:\Development\aidm and AIDM_MODE=development (the default when CI is false). Explicit process environment variables take precedence over .env, so an older shell AIDM_LIVE_LLM=0 will deliberately keep scripted mode. Test, CI and production mode ignore local .env. Never commit the real key; .gitignore already excludes .env. Restart Uvicorn after edits and start/reset an encounter; the status should report Live LLM enabled. This indicates selected policy, not proof of a successful provider call. The actual live OpenAI provider encounter and error handling still need independent UAT.
+
+To inspect *nonsecret* loaded settings without displaying the credential, run from repo root:
+
+    python -c "from aidm.config import load_config; c=load_config(required_secrets=('OPENAI_API_KEY',)); print('live=', c.live_llm, 'model=', c.llm_model, 'key_present=', bool(c.get_secret('OPENAI_API_KEY')))"
+
+Regression tests in aidm/web/test/test_web_chat.py use a fake OpenAIResponsesPolicy, a synthetic local .env, and an isolated temporary cwd to verify .env activates the LIVE_LLM adapter, process environment overrides win, .env cannot opt test/CI/production into paid calls, and missing secrets fail without leaking values. Tests do not make a live provider request.
+
+### BON blocking live-LLM UAT defect: exact numeric target aliases (21 November 2026)
+
+BON's first full live-provider 6-round encounter provisionally demonstrated the engine/LLM seam but exposed a reproducible functional defect: typing bare `1` at three valid human turns was rejected by the LLM interpreter, although the HTML DM prompt explicitly promises target selection by name or number. The separate offline ScriptedIntentPolicy already handled `1`, but the LIVE_LLM adapter previously delegated it entirely to an unconstrained model response. `2` and `Orc 1` were observed to work inconsistently; the issue is an intent-routing failure, not a hit-roll or damage calculation.
+
+Correction on DAVOS's existing Build AIDM-DES-025.2: the combat-session action boundary now parses unambiguous exact numeric aliases and Orc names/IDs and exact HOLD **before** invoking the injected intention policy (including a live LLM). For example, `1`, `01`, `Orc 1` and `orc-01` all resolve to `orc-01` **only if that ID is currently in the authoritative pending human decision's allowed_targets**. An exact invalid, unavailable or already-defeated numbered target returns NEEDS_CLARIFICATION with no provider call, attack, dice, cursor or version mutation. All accepted actions continue through the engine's existing server-issued encounter/actor/decision-token/version/idempotency and combat-legality guards. This shortcut cannot invent a target or override the engine. Natural-language input still goes through the LLM, as does non-authoritative public-event narration.
+
+Existing offline parsing uses the same exact alias helper to avoid mode drift. Explicit Python regression cases use a fake live-like policy that deliberately misreads `1`: all legal numbers/names/HOLD bypass it; invalid/down targets do not consume RNG/turn/version or call it; `1` works after Orc 2/3 have actually fallen in fixed-dice combat, leaving only Orc 1; natural prose still calls the injected LLM. Tests contain no real network or API credentials. The full Python/Node/coverage gate must be rerun at the newest source SHA on PEQUOD; BON then independently retests 2–3 real-provider browser inputs. The original merged PR #18 does not retroactively prove the bug is fixed.
