@@ -62,7 +62,10 @@ export function mountChat({
       item.appendChild(detail);
     }
     transcript.appendChild(item);
-    transcript.scrollTop = transcript.scrollHeight;
+    // .chat-panel, not the <ol>, owns the actual vertical scrollbar.
+    // Always follow new player and DM messages to the bottom.
+    const transcriptScroller = transcript.parentElement ?? transcript;
+    transcriptScroller.scrollTop = transcriptScroller.scrollHeight;
   }
 
   function showCombat(view) {
@@ -107,7 +110,8 @@ export function mountChat({
       item.textContent = text; // No private HTML/raw journal insertion.
       combatEvents.appendChild(item);
     }
-    combatEvents.scrollTop = combatEvents.scrollHeight;
+    // .combat-board is the overflow container, not its inner <ol>.
+    combatBoard.scrollTop = combatBoard.scrollHeight;
     if (partyOutcome && view.terminal) {
       const party = (view.surviving_party_summary ?? [])
         .map((actor) => `${actor.name}: ${actor.hp_current}/${actor.hp_max} HP`)
