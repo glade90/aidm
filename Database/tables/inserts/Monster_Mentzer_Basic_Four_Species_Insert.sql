@@ -11,7 +11,7 @@ Target Server   : PEQUOD (SQL Server default instance)
 Database        : DnD
 Schema          : Rules
 Table           : Rules.Monster
-Version         : 0.3.0 (REVIEW SEED; NOT ACTIVE)
+Version         : 0.4.0 (REVIEW SEED; NOT ACTIVE)
 Created         : 2026-11-21
 Dependencies    : Database/database/dnd.sql, Database/database/Rules.sql,
                   Database/tables/Monster.sql
@@ -22,6 +22,11 @@ DESIGN NOTES
 - NO B1 module encounter stats. B1 selects species only.
 - NO encounter group counts/individual HP/conditions are seeded here.
 - Only four base species, no chieftain/leader *instance* spawned.
+- SpecialAttacksFeatures is combat-only; SpecialEncounterFeatures carries
+  mechanical Encounter rules AND all nontechnical social/tactical/habitat
+  guidance, including parley, stand-off, retreat, camouflage and surprise.
+- Existing older inactive seeds are backfilled by the v0.4 migration first;
+  this script does not overwrite historical records.
 - Non-destructive and rerunnable: existing rows are NOT updated/deactivated.
   If any historical row exists for a (RulesetCode,MonsterCode), skip that key.
 - Rows are SourceChecked, Active=0 until owner approves and activates them.
@@ -47,6 +52,7 @@ CHANGE LOG
 2026-11-21  0.1.0  First four reviewed monster species seed records.
 2026-11-21  0.2.0  Set ellipse radii R1/R2 and Z estimates for four monsters.
 2026-11-21  0.3.0  Use ellipse full diameters D1/D2; humanoid circle 5ft.
+2026-11-21  0.4.0  Split combat and encounter special-features guidance.
 ===============================================================================
 */
 
@@ -84,6 +90,7 @@ BEGIN TRY
         [TreasureType] NVARCHAR(100) NULL,
         [GeneralDescription] NVARCHAR(MAX) NOT NULL,
         [SpecialAttacksFeatures] NVARCHAR(MAX) NOT NULL,
+        [SpecialEncounterFeatures] NVARCHAR(MAX) NOT NULL,
         [D1Feet] DECIMAL(9,2) NULL,
         [D2Feet] DECIMAL(9,2) NULL,
         [ZFeet] DECIMAL(9,2) NULL,
@@ -94,7 +101,7 @@ BEGIN TRY
     );
 
     INSERT INTO @Seed
-    ([MonsterCode], [MonsterName], [ParentMonsterCode], [SourceReference], [ArmorClass], [HitDiceText], [AttackPattern], [DamagePattern], [SaveAs], [Morale], [MovementTurnFeet], [MovementRoundFeet], [MovementSpecialText], [Alignment], [XPValue], [NumberAppearingText], [TreasureType], [GeneralDescription], [SpecialAttacksFeatures], [D1Feet], [D2Feet], [ZFeet], [SizeBasis], [IllustrationPath], [MapIconPath], [NotesMarkdown])
+    ([MonsterCode], [MonsterName], [ParentMonsterCode], [SourceReference], [ArmorClass], [HitDiceText], [AttackPattern], [DamagePattern], [SaveAs], [Morale], [MovementTurnFeet], [MovementRoundFeet], [MovementSpecialText], [Alignment], [XPValue], [NumberAppearingText], [TreasureType], [GeneralDescription], [SpecialAttacksFeatures], [SpecialEncounterFeatures], [D1Feet], [D2Feet], [ZFeet], [SizeBasis], [IllustrationPath], [MapIconPath], [NotesMarkdown])
     VALUES
     (N'ORC',
      N'Orc',
@@ -114,7 +121,8 @@ BEGIN TRY
      N'2-8 normally; 10-60 in lair',
      N'(P), D',
      N'Orcs are quarrelsome, ill-tempered humanoids with a preference for dark underground places and night activity. They commonly carry swords, spears, axes or clubs, and may be cautious around larger or stronger enemies. Narrate differences between ordinary members, a clearly identified leader and a separate tribal chieftain. Their nocturnal habits and temperament inform tactics and conversation; they do not by themselves impose extra dice penalties.',
-     N'Use the encounter roster to identify each Orc''s role and current conditions; do not create roles, equipment, starting HP or targets from this species row. A fighting Orc in daylight suffers -1 to its Hit roll; this is not a damage or Armor Class penalty. A specifically designated ordinary Orc group leader has 8 starting HP supplied by encounter setup and adds +1 to damage after a successful weapon hit. If that leader dies, the surviving group''s morale value becomes 6 instead of 8, but roll a morale check only when the generic Mentzer morale procedure next requires one; death alone does not create a bonus check. A tribal chieftain is a distinct, explicitly identified encounter role with 15 starting HP, attacks using the 4-HD monster attack table and adds +2 damage after a successful weapon hit; do not also add the ordinary leader''s +1. The daylight -1 Hit penalty applies to the chieftain as well. These rules are conditions for the Combat Agent to interpret and propose; generic deterministic tools validate and apply them. Do not infer numerical morale penalties merely from Orc fear of strong foes.',
+     N'Ordinary Orcs attack once with equipped weapon using the authorised Combat roster''s hit table and damage profile. A fighting Orc, including a chieftain, has -1 to its Hit roll in daylight; this changes neither AC nor damage. The explicitly assigned ordinary group leader has 8 starting HP supplied before combat and +1 damage on successful weapon hits, not +1 Hit. Confirmed death of that leader changes the surviving group''s morale from 8 to 6 but creates NO additional unscheduled morale check: use the next normal generic check. A separate tribal chieftain has 15 starting HP supplied by Encounter, attacks on the 4-HD hit table and adds +2 weapon damage, NOT an additional ordinary leader +1. Combat Agent proposes appropriate signed modifiers by actor and event; generic deterministic tools validate and commit effects. All attack rolls, damage rolls, morale triggers and state transitions must be journalled.',
+     N'Nocturnal, quarrelsome, ill-tempered omnivorous humanoids, normally dwelling underground; likely hostile but may threaten, bargain, talk, stand off, obey a stronger leader or retreat when intimidated. They are cautious around foes larger or stronger than themselves; this is a behavioural preference, not an automatic fear or Hit penalty. Typical weapons are swords, spears, axes or clubs; nonleaders are not competent with siege/mechanical weapons such as catapults. Orcs commonly form groups with an ordinary leader; a chieftain belongs to separately identified large tribal contexts. Normally 2-8 Orcs, 10-60 in a lair. Tribes may have equal male/female numbers and two young per two adults; possible Ogre support on a 1-in-6 chance per twenty tribal Orcs. Optional Expert-only troll presence (1-in-10 chance) applies ONLY if the Expert overlay is enabled, not in the current Mentzer Basic game. Orcs may serve in larger Chaotic armies. Encounter chooses group count, roles, weapons, environment, intentions, reaction, negotiation and whether combat begins, and supplies daylight to Combat. No special surprise range is stated: normal two-side surprise procedure when appropriate. Never force combat or import B1-specific encounter stats.',
      5.00,
      5.00,
      6.00,
@@ -140,7 +148,8 @@ BEGIN TRY
      N'2-8 normally; 1-8 in lair',
      N'Nil',
      N'An unusually large, approximately foot-long centipede, its low body carried on many restless legs. It prefers dark, damp dungeon spaces. Describe the creeping approach, flicker of countless legs, and venomous bite, but do not portray it as a many-foot-long carrion crawler. Its preference for darkness and moisture does not itself modify combat rolls.',
-     N'A Giant Centipede attacks once by biting. If its Hit roll misses, no poison saving throw or damage is caused. If its bite hits, the bite itself causes zero HP damage; the bitten target must make a Saving Throw versus Poison. A successful save causes no illness or condition. A failed save applies the owner-approved named condition NAUSEATED to the actual victim. It lasts ten days of in-game time, allows movement at half normal speed, and forbids other physical actions while active. It is not death, continuing HP poison damage, a second saving throw, or complete immobility. The current prototype Combat test only checks the correct bite/save trigger, zero damage, and initial NAUSEATED assignment; enforcing movement/action limits, lasting time, persistence and expiry belongs to generic future lifecycle story AIDM-DES-001.7.5. The Combat Agent selects the relevant Poison save/effect proposal; generic tools resolve and commit state.',
+     N'One bite attack. A miss triggers neither HP damage nor saving throw. A successful bite deals zero HP damage and obliges the actual bitten actor to Save vs Poison using that victim''s saving-throw profile, not the centipede''s Save As. Success causes no additional effect; failure assigns generic NAUSEATED to the correct actor. Source effect lasts ten in-game days and permits only half-speed movement, forbidding other physical actions; the CURRENT Combat fixture checks only initial named-state assignment and no bite damage. World-time duration, movement/action restrictions, cross-encounter persistence and expiry belong to generic lifecycle Build AIDM-DES-001.7.5. No automatic death, extra HP poison damage or save on miss. Source attribution and each hit/save are journalled.',
+     N'Approximately one foot long, crawling on many legs; prefers damp, dark dungeon areas. Many may gather around moist stone, debris or refuse; its appearance and movement can be described to players and may provoke caution, avoidance, inspection or parley attempts, without presuming intelligent conversation or forcing combat. Mentzer number appearing 2-8 normally, 1-8 in a lair. No unusual surprise threshold or special hiding/surprise bonus stated: standard side-based surprise when relevant. A poisonous bite is NOT an ambient exposure: do not apply NAUSEATED merely because the creature is seen or approaches. If anyone remains ill after a fight, future Expedition/Bookkeeper world-time service preserves the condition; Encounter does not prematurely expire it. No made-up stench radius or extra mechanics.',
      1.00,
      0.30,
      0.20,
@@ -166,7 +175,8 @@ BEGIN TRY
      N'1-4 normally; 0 in lair',
      N'B',
      N'A revolting wormlike scavenger, approximately nine feet long and three feet high, supported by many short legs. Eight restless tentacles encircle its small mouth. It can creep across floors, walls and ceilings and scavenges deep in damp, dark dungeons. Narrate the repellent ripple of its long body, the probing tentacles, and its tendency to feed on helpless prey when it is not threatened. Sensory detail is narrative colour, not an extra mechanical penalty.',
-     N'The Carrion Crawler can make eight independent tentacle Hit rolls in a round, each against a legal target chosen by its Combat Agent within the permitted attack/target sequence. A miss causes neither damage nor saving throw. Each tentacle hit deals zero HP damage but requires the struck target to save versus Paralysis; a failed save marks that individual PARALYZED. The crawler generally prefers an unparalysed viable opponent over wasting further attacks on a helpless target and may distribute its permitted attacks among eligible foes. When it is no longer under attack and prey is paralysed, it seeks to feed; do not invent a new bite-damage schedule or automatic death. Generic PARALYZED rules: the victim remains conscious but cannot move, speak, attack or cast; attacks against a paralysed victim automatically hit and need only a damage roll. Base paralysis typically lasts 2d4 dungeon turns unless overridden; Cure Light Wounds can instead remove paralysis without healing HP. The initial crawler Combat test requires only separate attacks, correct-target saves and PARALYZED assignment; lifecycle/recovery/automatic-hit verification is deferred to generic story AIDM-DES-001.7.6. No species-specific hardcoded Python branch.',
+     N'A living Carrion Crawler has eight tentacles which may each make a separately journalled Hit roll in the same round when eligible. Every tentacle hit causes zero HP damage and one Save vs Paralysis for the actual target; a miss causes neither save nor paralysis. On failed save, apply PARALYZED to the correct victim; no invented tentacle poison or bite damage. Generic PARALYZED state leaves the victim conscious but unable to move, speak, attack or cast, with attacks on paralysed victims automatically hitting and default duration 2d4 dungeon turns unless source changes it. This current Combat fixture verifies only independent hits/saves and initial PARALYZED assignment; ongoing expiry, auto-hit and cure are separately owned by AIDM-DES-001.7.6. A monster agent may prefer still-active targets during attacks; all rolls and effect commits remain deterministic and audited.',
+     N'A revolting roughly nine-foot scavenger, feeding on carrion and helpless prey, crawling along floors, walls and ceilings with many short legs and eight probing mouth tentacles. Found in deep, filthy, dank dungeon areas; narrate sound, smell, investigation, discovery and fear without inventing numerical surprise/fear mechanics. Number appearing 1-4 normally; 0 in lair in the Mentzer table. No special surprise threshold documented; generic two-side procedure only. A crawler generally engages viable threats rather than wasting tentacles on already paralysed prey, and attempts to approach helpless prey to feed when no one threatens it; do not invent automatic death or bite damage. Players may decide to fight, attempt parley or a stand-off, avoid it, or flee; recognise FLEE intent and hand off unresolved escape to Encounter/Expedition, not automatic successful escape. Wall/ceiling movement, spatial approach, exits, chase and feeding outcomes are deferred to Encounter/Geometry/Expedition. CRAW-T001 tests four crawlers as an intentionally dangerous, unbalanced stress encounter; do not quietly rebalance or script a wipe.',
      9.00,
      3.00,
      3.00,
@@ -192,7 +202,8 @@ BEGIN TRY
      N'1-4 normally; 1-4 outdoors/in lair',
      N'U',
      N'A carnivorous, relatively unintelligent giant crab spider approximately five feet long. Its mottled body and limbs can blend uncannily into surrounding stone, lichen or shadow, and it can cling to sheer walls and ceilings before dropping on prey. Describe the sudden movement of its many jointed legs and venomous fangs. It does NOT make webs. It will often avoid or flee conspicuous fire, but a visible torch does not by itself create a fixed numerical penalty or an automatic morale check.',
-     N'Camouflage allows the Crab Spider to surprise enemies on party-side surprise die results 1-4 on 1d6, rather than the normal 1-2; the spiders'' own vulnerability to being surprised is the ordinary 1-2. Resolve this at the generic Encounter surprise boundary, using one roll per side; do not roll per spider or automatically grant a surprise round. After its first attack, the spider is visible and may be targeted normally. In combat it makes one bite attack: a miss causes no damage and no poison save; a hit causes 1d8 direct HP damage and requires the victim to Save versus Poison, adding +2 to that victim''s save roll because the venom is weak. A successful save avoids poison while keeping the bite damage. On failed save, assign generic POISONED to the actual victim, source attributed to that spider; the full source effect can cause delayed death in 1d4 dungeon turns, NOT immediate death on the bite. Current combat acceptance checks only HP damage, the correct +2 Poison save and initial POISONED state; timing/recovery is deferred to AIDM-DES-001.7.7. Fire avoidance is tactical behaviour, not a guaranteed fear effect or numeric modifier. The spider does not create webs.',
+     N'A Giant Crab Spider has one bite attack per eligible round. If it misses, there is no HP damage or poison saving throw. A successful bite deals 1d8 HP damage and separately triggers Save vs Poison for the actual victim with +2 to the victim''s save roll due to weak venom. Pass avoids the poison but not initial bite damage; fail marks the correct actor POISONED with source spider identified. In the full rule the venom can cause delayed death after 1d4 dungeon turns, but current Combat fixture checks only initial POISONED assignment, not timer, death, treatment or expiry; generic lifecycle is AIDM-DES-001.7.7. The +2 is NOT an attack or damage bonus. No extra web attack, fire fear penalty, automatic morale check, or immediate fatal poison. Deterministic tools resolve damage, saves and state changes.',
+     N'Five-foot-long, relatively unintelligent carnivorous spider with mottled camouflaging colour; moves across walls and ceilings and can drop suddenly upon prey. It DOES NOT create webs. In suitable camouflage, its presence changes the opposing party''s surprise threshold from the normal 1-2 on d6 to 1-4 on d6. Its own group still uses normal vulnerability to surprise 1-2 on d6; one roll PER SIDE, not one per spider. After its initial attack the spider becomes visible and targetable normally. Often retreats from conspicuous fire, but a torch does not automatically impose a numerical Hit, AC, morale or damage penalty, nor trigger an extra morale check; cautious, avoidance, retreat, tactical intimidation and reaction/parley may be interpreted by Encounter within source rules. No forced attack if creatures can avoid or stand off. Appears 1-4 normally/in lair. Scenes specify available walls/ceiling/lighting and whether camouflage is physically applicable; no assumed surprise in an unsuitable environment. Keep the CRAB-T001 fixed surprise result (party 5, spider group 2: spiders surprised) in the Scenario table, not in this species definition. Artwork is DRAFT with incorrect webs and adventurer figures: never treat it as approved reference art.',
      5.00,
      4.00,
      2.00,
@@ -206,12 +217,12 @@ BEGIN TRY
     INSERT INTO [Rules].[Monster]
     (
         [RulesetCode], [MonsterCode], [Active], [SourceStatus],
-        [RecordDate], [MonsterName], [ParentMonsterCode], [SourceReference], [ArmorClass], [HitDiceText], [AttackPattern], [DamagePattern], [SaveAs], [Morale], [MovementTurnFeet], [MovementRoundFeet], [MovementSpecialText], [Alignment], [XPValue], [NumberAppearingText], [TreasureType], [GeneralDescription], [SpecialAttacksFeatures], [D1Feet], [D2Feet], [ZFeet], [SizeBasis], [IllustrationPath], [MapIconPath], [NotesMarkdown]
+        [RecordDate], [MonsterName], [ParentMonsterCode], [SourceReference], [ArmorClass], [HitDiceText], [AttackPattern], [DamagePattern], [SaveAs], [Morale], [MovementTurnFeet], [MovementRoundFeet], [MovementSpecialText], [Alignment], [XPValue], [NumberAppearingText], [TreasureType], [GeneralDescription], [SpecialAttacksFeatures], [SpecialEncounterFeatures], [D1Feet], [D2Feet], [ZFeet], [SizeBasis], [IllustrationPath], [MapIconPath], [NotesMarkdown]
     )
     OUTPUT inserted.[MonsterCode] INTO @Inserted([MonsterCode])
     SELECT
         N'MentzerBECMI', s.[MonsterCode], CONVERT(BIT,0), N'SourceChecked',
-        CONVERT(DATE,SYSUTCDATETIME()), s.[MonsterName], s.[ParentMonsterCode], s.[SourceReference], s.[ArmorClass], s.[HitDiceText], s.[AttackPattern], s.[DamagePattern], s.[SaveAs], s.[Morale], s.[MovementTurnFeet], s.[MovementRoundFeet], s.[MovementSpecialText], s.[Alignment], s.[XPValue], s.[NumberAppearingText], s.[TreasureType], s.[GeneralDescription], s.[SpecialAttacksFeatures], s.[D1Feet], s.[D2Feet], s.[ZFeet], s.[SizeBasis], s.[IllustrationPath], s.[MapIconPath], s.[NotesMarkdown]
+        CONVERT(DATE,SYSUTCDATETIME()), s.[MonsterName], s.[ParentMonsterCode], s.[SourceReference], s.[ArmorClass], s.[HitDiceText], s.[AttackPattern], s.[DamagePattern], s.[SaveAs], s.[Morale], s.[MovementTurnFeet], s.[MovementRoundFeet], s.[MovementSpecialText], s.[Alignment], s.[XPValue], s.[NumberAppearingText], s.[TreasureType], s.[GeneralDescription], s.[SpecialAttacksFeatures], s.[SpecialEncounterFeatures], s.[D1Feet], s.[D2Feet], s.[ZFeet], s.[SizeBasis], s.[IllustrationPath], s.[MapIconPath], s.[NotesMarkdown]
     FROM @Seed AS s
     WHERE NOT EXISTS
     (
