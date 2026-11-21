@@ -86,6 +86,18 @@ def act(client, view, statement, *, action_id, session="s1",
     return response.json()
 
 
+def reset(client, view, *, session="s1", encounter=None):
+    response = client.post("/api/turn", json={
+        "session_id": session, "correlation_id": f"reset-{session}-{view['state_version']}",
+        "combat": {
+            "kind": "RESET",
+            "encounter_id": view["encounter_id"] if encounter is None else encounter,
+            "log_since_sequence": 0,
+        },
+    })
+    return response.json()
+
+
 def log(client, view, *, session="s1", since=0):
     r = client.post("/api/turn", json={
         "session_id": session, "combat": {
@@ -94,6 +106,101 @@ def log(client, view, *, session="s1", since=0):
         },
     })
     return r.json()
+
+
+def test_reset_creates_new_canonical_engine_while_preserving_session_identity():
+    app, service, sources = make_app()
+    with TestClient(app) as client:
+        before = start(client)
+        old = before["combat"]
+        old_engine = service._sessions["s1"].engine
+        old_snapshot = old_engine.snapshot()
+        assert old["state_version"] == 0
+        assert len(sources) == 1
+        fresh = reset(client, old)
+        assert fresh["status"] == "NEEDS_PLAYER_INPUT"
+        assert fresh["simulated"] is False
+        assert "Combat reset" in fresh["message"]
+        assert fresh["session_id"] == before["session_id"] == "s1"
+        newer = fresh["combat"]
+        assert newer["encounter_id"] != old["encounter_id"]
+        assert newer["state_version"] == 0
+        assert newer["current_round"] == 1
+        assert newer["log_next_cursor"] > 0
+        assert newer["next_decision"]["actor_id"] == "alho"
+        assert newer["next_decision"]["decision_token"] != old["next_decision"]["decision_token"]
+        assert newer["new_log_entries"][0]["kind"] == "ROUND_STARTED"
+        assert all(entry["round"] == 1 for entry in newer["new_log_entries"])
+        assert {a["actor_id"]: a["hp_current"] for a in newer["party_status"]} == {
+            "alho": 8, "evro": 8, "sho-rembo": 9,
+        }
+        assert len(sources) == 2
+        assert sources[0] is not sources[1]
+        assert sources[0].cursor == sources[1].cursor == 2
+        assert service._sessions["s1"].engine is not old_engine
+        assert old_engine.snapshot() == old_snapshot
+        # START is idempotent; reset is the only way to replace this encounter.
+        same = start(client)["combat"]
+        assert same["encounter_id"] == newer["encounter_id"]
+        assert len(sources) == 2
+        action = act(client, newer, "HOLD", action_id="fresh-action")
+        assert action["status"] == "NEEDS_PLAYER_INPUT"
+        assert action["combat"]["state_version"] > newer["state_version"]
+        assert sources[0].cursor == 2
+        assert service._sessions["s1"].engine is not old_engine
+
+
+def test_reset_rejects_old_or_foreign_encounter_without_changing_any_state():
+    app, service, sources = make_app()
+    with TestClient(app) as client:
+        before = start(client)["combat"]
+        unrelated = start(client, session="s2")["combat"]
+        denied = reset(client, before, encounter=unrelated["encounter_id"])
+        assert denied["status"] == "BLOCKED"
+        assert denied["combat"] is None
+        assert service._sessions["s1"].engine.version == 0
+        assert len(sources) == 2
+
+        first = reset(client, before)
+        assert first["status"] == "NEEDS_PLAYER_INPUT"
+        new = first["combat"]
+        assert len(sources) == 3
+        repeated = reset(client, before)
+        assert repeated["status"] == "BLOCKED"
+        assert repeated["combat"] is None
+        assert len(sources) == 3
+        assert service._sessions["s1"].encounter_id == new["encounter_id"]
+        assert service._sessions["s2"].encounter_id == unrelated["encounter_id"]
+        stale_action = act(client, before, "HOLD", action_id="stale-after-reset")
+        assert stale_action["status"] == "BLOCKED"
+        assert stale_action["combat"] is None
+        assert service._sessions["s1"].engine.version == 0
+        assert len(sources) == 3
+        assert sources[2].cursor == 2
+        live_log = log(client, new)["combat"]
+        assert live_log["encounter_id"] == new["encounter_id"]
+
+
+def test_reset_works_after_terminal_without_replaying_previous_outcome():
+    app, service, sources = make_app()
+    with TestClient(app) as client:
+        first = start(client)["combat"]
+        v1 = act(client, first, "HOLD", action_id="terminal-1")["combat"]
+        v2 = act(client, v1, "HOLD", action_id="terminal-2")["combat"]
+        completed = act(client, v2, "Orc 2", action_id="terminal-3")["combat"]
+        assert completed["terminal"] is True
+        assert completed["outcome"] == "PARTY_VICTORY"
+        reset_result = reset(client, completed)
+        assert reset_result["status"] == "NEEDS_PLAYER_INPUT"
+        v = reset_result["combat"]
+        assert v["terminal"] is False
+        assert v["outcome"] is None
+        assert v["surviving_party_summary"] is None
+        assert v["state_version"] == 0
+        assert v["encounter_id"] != completed["encounter_id"]
+        assert len(sources) == 2
+        assert all(e["round"] == 1 for e in v["new_log_entries"])
+        assert all(e["kind"] != "ENCOUNTER_TERMINAL" for e in v["new_log_entries"])
 
 
 def test_real_start_only_path_preserves_meta_contract_and_human_prompt():
