@@ -27,6 +27,7 @@ export function mountChat({
   }
   const connection = status.parentElement;
   const startButton = documentRef.getElementById("combat-start");
+  const resetButton = documentRef.getElementById("combat-reset");
   const logButton = documentRef.getElementById("combat-log");
   const combatStatus = documentRef.getElementById("combat-status");
   const combatBoard = documentRef.getElementById("combat-board");
@@ -73,6 +74,7 @@ export function mountChat({
     if (visibleEncounterId !== view.encounter_id) {
       shownEvents.clear();
       combatEvents.replaceChildren();
+      if (partyOutcome) partyOutcome.textContent = "";
       visibleEncounterId = view.encounter_id;
     }
     combatBoard.hidden = false;
@@ -136,6 +138,7 @@ export function mountChat({
     button.disabled = value;
     input.disabled = value;
     if (startButton) startButton.disabled = value;
+    if (resetButton) resetButton.disabled = value || !(client.combatState);
     if (logButton) logButton.disabled = value || !(client.combatState);
   }
 
@@ -178,8 +181,22 @@ export function mountChat({
     if (pending) return;
     setPending(true);
     setStatus(label, "working");
+    const previousEncounterId = client.combatState?.encounter_id;
     try {
       const result = await action();
+      const didReset = label === "Resetting combat…" && result.combat
+        && result.combat.encounter_id !== previousEncounterId
+        && result.status !== "ERROR";
+      if (didReset) {
+        // Only clear the visible history after a confirmed replacement.
+        // A failed/indeterminate reset must retain the old record.
+        transcript.replaceChildren();
+        input.value = "";
+        shownEvents.clear();
+        if (combatEvents) combatEvents.replaceChildren();
+        if (partyOutcome) partyOutcome.textContent = "";
+        visibleEncounterId = null;
+      }
       if (result.combat) showCombat(result.combat);
       // Do not make a VIEW_LOG response look like a new combat action.
       if (label !== "Retrieving combat journal…") {
@@ -207,6 +224,10 @@ export function mountChat({
   if (logButton) {
     logButton.addEventListener("click", () =>
       runCombatControl(() => client.viewCombatLog(), "Retrieving combat journal…"));
+  }
+  if (resetButton) {
+    resetButton.addEventListener("click", () =>
+      runCombatControl(() => client.resetCombat(), "Resetting combat…"));
   }
 
   form.addEventListener("submit", submit);
