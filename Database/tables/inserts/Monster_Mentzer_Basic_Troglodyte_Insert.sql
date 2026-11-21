@@ -10,9 +10,9 @@ Purpose         : Seed the reviewed Mentzer Basic Troglodyte species definition
 Target Server   : PEQUOD (SQL Server)
 Database        : DnD
 Schema/Table    : Rules.Monster
-Version         : 0.1.0 (SOURCE CHECKED / INACTIVE)
+Version         : 0.4.0 (SOURCE CHECKED / INACTIVE)
 Created         : 2026-11-21
-Dependencies    : Database/tables/Monster.sql v0.3 (D1/D2 diameters, Z height)
+Dependencies    : Database/tables/Monster.sql v0.4 (includes SpecialEncounterFeatures)
 Source          : Frank Mentzer, D&D Basic (1983), Dungeon Masters Rulebook
                   Troglodyte monster entry, printed p.38.
 Design Review   : AIDM-DES-001.7; Combat Test TROG-T001.
@@ -70,6 +70,7 @@ BEGIN TRY
             [MovementSpecialText], [Alignment], [XPValue],
             [NumberAppearingText], [TreasureType],
             [GeneralDescription], [SpecialAttacksFeatures],
+            [SpecialEncounterFeatures],
             [D1Feet], [D2Feet], [ZFeet], [SizeBasis],
             [IllustrationPath], [MapIconPath], [NotesMarkdown]
         )
@@ -85,7 +86,8 @@ BEGIN TRY
             N'Chameleon-like camouflage against rock walls; surprise is Encounter, not Combat.',
             N'Chaotic', 30, N'1-8 normally; 5-40 in lair', N'A',
             N'An intelligent, upright reptilian humanoid with a short tail, long legs, and a spiny comb on its head and arms. It can use its hands much like a human. Its skin changes colour to blend with the stone walls of underground passages. Hostile to most other creatures, it exudes a dreadful oily stench. Let the Dungeon Master narrate its mottled scales, searching claws, low stance and overpowering odour without making additional numerical rules.',
-            N'Ordinary close combat: a Troglodyte has THREE separate attacks in a round, two claws and one bite, each with its own Hit roll and, on hit, 1d4 damage. It can change colours and hide by rock walls, causing opponents to be surprised on a party-side surprise d6 of 1-4 when the camouflage is applicable; this is PRE-COMBAT ENCOUNTER responsibility, never a bonus ordinary Combat turn. Its oily stench affects HUMANS and DEMI-HUMANS who are exposed to it: unless the affected individual succeeds at a Saving Throw versus Poison, apply the owner-named, source-tagged RETCHING condition. A RETCHING affected character suffers a penalty of -2 to that character''s Hit rolls while fighting a TROGLODYTE in hand-to-hand combat. Do not apply -2 to damage, Armor Class, Poison saving throws, missile attacks, spells or attacks against unrelated targets. This state does NOT have the Centipede NAUSEATED effect (no ten-day duration, half movement or action prohibition). Source does not specify exact stench radius, repeat-save cadence or expiry; these are undecided, not silently invented. The Encounter/scene provides explicit exposure facts for prototype; generic saving-throw/state tools and validated Combat Agent proposals commit changes. Never apply RETCHING automatically solely because a Troglodyte appears in a roster. Record actual victim, exposure source, save result and modifier provenance.',
+            N'Ordinary close combat: a Troglodyte has THREE separate attacks in a round, two claws and one bite, each with its own Hit roll and, on hit, 1d4 damage. Its oily stench affects humans and demi-humans exposed according to validated Encounter scene facts: a failed Save vs Poison assigns the owner-approved RETCHING state to the actual victim; while fighting a Troglodyte hand-to-hand, the affected victim has -2 on Hit rolls. This is not a damage, AC, missile, spell or universal melee penalty, and NOT the Giant Centipede ten-day NAUSEATED illness. The monster entry does not specify exposure radius, repeat-save cadence or expiry, so the Combat Agent may not invent those. Exact exposure, actor, source and saving throw outcome are journalled using generic tools. Each of the three attacks is separately resolved.',
+            N'Intelligent, upright reptilian humanoids with short tails, long legs and a spiny comb on head and arms. Colour-changing camouflage against rock walls can surprise opponents on 1-4 on their party-side d6 when appropriate; troglodytes themselves use the ordinary 1-2 surprise vulnerability. Scene and walls must support camouflage; use one surprise roll per side, never one per monster. They are generally hateful and aggressive toward most other creatures, but can be approached for parley, avoidance, threats, stand-off, retreat, or other attempts without forcing predetermined battle. Their foul oily stench can affect exposed humans and demi-humans; the Encounter/scene must supply actor-specific exposure evidence, not infer everyone exposed from mere roster presence. Source leaves radius, re-save interval and expiry unspecified: defer rather than invent. Encounter prepares surprise, scene, stench exposure and roster and passes them to Combat. Mentzer appears 1-8 normally or 5-40 in lair. Humanoid ellipse full diameters D1=D2=5 ft are AIDM modelling convention, not Mentzer mechanics.',
             5.00, 5.00, 6.00,
             N'Owner default 5ft-diameter circular humanoid footprint; estimated 6ft height. Mentzer provides no Troglodyte dimensions.',
             NULL, NULL,
