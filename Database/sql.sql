@@ -1,2 +1,3 @@
-select * from characters.Character
+select * from characters.CharacterExpedition
+
 select * from Rules.Weapons
