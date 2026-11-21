@@ -379,6 +379,141 @@ def test_offline_shorthand_ambiguous_or_unlisted_target_fails_closed(text):
     assert (action, target) == ("NEEDS_CLARIFICATION", None)
 
 
+class _LivePolicyThatMisreadsDigits:
+    """Stand-in for an unreliable live model; never a paid provider call."""
+
+    mode = "LIVE_LLM"
+
+    def __init__(self):
+        self.proposals = []
+
+    def propose(self, *, player_text, actor_id, allowed_targets):
+        self.proposals.append((player_text, actor_id, allowed_targets))
+        # Exactly the BON UAT failure: raw '1' is not understood.
+        if player_text.strip() == "1":
+            return "NEEDS_CLARIFICATION", None
+        return "ATTACK_MELEE", "orc-01"
+
+    def narrate(self, *, verified_events):
+        return None
+
+
+@pytest.mark.parametrize("entry, kind, target, cursor", [
+    ("1", "MELEE_RESOLVED", "orc-01", 4),
+    ("2", "MELEE_RESOLVED", "orc-02", 4),
+    ("3", "MELEE_RESOLVED", "orc-03", 4),
+    ("Orc 1", "MELEE_RESOLVED", "orc-01", 4),
+    (" ORC 2 ", "MELEE_RESOLVED", "orc-02", 4),
+    ("orc-03", "MELEE_RESOLVED", "orc-03", 4),
+    ("001", "MELEE_RESOLVED", "orc-01", 4),
+    ("HOLD", "ACTION_HELD", None, 3),
+    (" hold ", "ACTION_HELD", None, 3),
+])
+def test_live_llm_exact_shortcuts_never_depend_on_model_interpretation(
+    entry, kind, target, cursor,
+):
+    model = _LivePolicyThatMisreadsDigits()
+    app, service, sources = make_app(faces=(6, 2, 1, 1), policy=model)
+    with TestClient(app) as client:
+        initial = start(client)["combat"]
+        assert initial["intent_mode"] == "LIVE_LLM"
+        assert sources[0].cursor == 2
+        result = act(client, initial, entry, action_id="bon-exact-shortcut")
+        assert result["status"] == "NEEDS_PLAYER_INPUT"
+        assert result["combat"]["next_decision"]["actor_id"] == "sho-rembo"
+        assert model.proposals == [], "Exact choice must bypass provider"
+        assert sources[0].cursor == cursor
+        journal = service._sessions["s1"].engine.journal()
+        event = next(x for x in journal if x.actor_id == "alho"
+                     and x.kind in ("MELEE_RESOLVED", "ACTION_HELD"))
+        assert event.kind == kind
+        if target is not None:
+            assert event.details["target_id"] == target
+            assert event.details["hit"] is False
+            assert event.details["damage"] == 0
+
+
+@pytest.mark.parametrize("entry", ["0", "4", "99", "Orc 4", "orc-04", "0000"])
+def test_live_llm_invalid_exact_target_does_not_call_model_or_consume_turn(entry):
+    model = _LivePolicyThatMisreadsDigits()
+    app, service, sources = make_app(faces=(6, 2), policy=model)
+    with TestClient(app) as client:
+        initial = start(client)["combat"]
+        before = service._sessions["s1"].engine.snapshot()
+        result = act(client, initial, entry, action_id="bon-invalid-number")
+        assert result["status"] == "NEEDS_PLAYER_INPUT"
+        assert result["combat"]["state_version"] == initial["state_version"]
+        assert result["combat"]["next_decision"]["decision_token"] == (
+            initial["next_decision"]["decision_token"]
+        )
+        assert model.proposals == [], "Unavailable number cannot be redirected"
+        assert service._sessions["s1"].engine.snapshot() == before
+        assert sources[0].cursor == 2
+        assert result["combat"]["new_log_entries"] == []
+
+
+def test_live_llm_down_orc_number_is_rejected_read_only_even_when_model_would_redirect():
+    model = _LivePolicyThatMisreadsDigits()
+    app, service, sources = make_app(policy=model)
+    with TestClient(app) as client:
+        initial = start(client)["combat"]
+        after_hold = act(client, initial, "HOLD", action_id="bon-down-setup")
+        assert after_hold["status"] == "NEEDS_PLAYER_INPUT"
+        sho = after_hold["combat"]
+        # Evro's engine-verified 8 damage incapacitates Orc 1.
+        assert "orc-01" not in sho["next_decision"]["allowed_targets"]
+        before = service._sessions["s1"].engine.snapshot()
+        prior_cursor = sources[0].cursor
+        denied = act(client, sho, "1", action_id="bon-down-target")
+        assert denied["status"] == "NEEDS_PLAYER_INPUT"
+        assert denied["combat"]["state_version"] == sho["state_version"]
+        assert denied["combat"]["next_decision"] == sho["next_decision"]
+        assert sources[0].cursor == prior_cursor
+        assert service._sessions["s1"].engine.snapshot() == before
+        assert model.proposals == []
+
+
+def test_live_llm_number_one_when_only_orc_one_survives_is_a_real_action():
+    # Round 1: Alho defeats Orc 2, Evro misses Orc 1, Sho defeats
+    # Orc 3, remaining Orc 1 misses Evro, and Party wins R2 initiative.
+    faces = (6, 2, 20, 4, 1, 20, 3, 1, 6, 2, 1, 1)
+    model = _LivePolicyThatMisreadsDigits()
+    app, service, sources = make_app(faces=faces, policy=model)
+    with TestClient(app) as client:
+        first = start(client)["combat"]
+        sho = act(client, first, "2", action_id="bon-only-setup-2")
+        assert sho["status"] == "NEEDS_PLAYER_INPUT"
+        assert sho["combat"]["next_decision"]["actor_id"] == "sho-rembo"
+        next_round = act(client, sho["combat"], "3", action_id="bon-only-setup-3")
+        assert next_round["status"] == "NEEDS_PLAYER_INPUT"
+        pending = next_round["combat"]
+        assert pending["current_round"] == 2
+        assert pending["next_decision"]["actor_id"] == "alho"
+        assert pending["next_decision"]["allowed_targets"] == ["orc-01"]
+        accepted = act(client, pending, "1", action_id="bon-only-orc-1")
+        assert accepted["status"] == "NEEDS_PLAYER_INPUT"
+        assert accepted["combat"]["next_decision"]["actor_id"] == "sho-rembo"
+        assert model.proposals == []
+        journal = service._sessions["s1"].engine.journal()
+        assert any(e.kind == "MELEE_RESOLVED" and e.actor_id == "alho"
+                   and e.round_index == 2 and e.details["target_id"] == "orc-01"
+                   for e in journal)
+        assert sources[0].cursor == len(faces)
+
+
+def test_live_llm_open_language_still_uses_model_for_intent():
+    model = _LivePolicyThatMisreadsDigits()
+    app, service, sources = make_app(faces=(6, 2, 1, 1), policy=model)
+    with TestClient(app) as client:
+        first = start(client)["combat"]
+        action = act(client, first, "I slash the first orc", action_id="bon-prose")
+        assert action["status"] == "NEEDS_PLAYER_INPUT"
+        assert len(model.proposals) == 1
+        assert model.proposals[0][0] == "I slash the first orc"
+        assert model.proposals[0][1] == "alho"
+        assert sources[0].cursor == 4
+
+
 def test_shorthand_is_a_real_combat_action_and_dm_describes_outcome():
     app, service, sources = make_app()
     with TestClient(app) as client:
