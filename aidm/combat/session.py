@@ -373,6 +373,29 @@ class CombatSessionService:
             cue = None
             if e.kind == "SIDE_INITIATIVE":
                 cue = "INITIATIVE"
+                sides = engine.definition.sides
+                faces = e.details.get("faces_by_side")
+                if (isinstance(faces, Mapping) and len(sides) == 2
+                        and all(type(faces.get(side.side_id)) is int for side in sides)):
+                    left, right = sides
+                    left_face, right_face = faces[left.side_id], faces[right.side_id]
+                    def public_side_name(side):
+                        if side.side_id == engine.definition.party.side.side_id:
+                            return "Party"
+                        if all(actor.publicly_visible
+                               and actor.display_name.startswith("Orc ")
+                               for actor in side.members):
+                            return "Orcs"
+                        return side.label.title()
+
+                    left_name, right_name = public_side_name(left), public_side_name(right)
+                    verdict = (
+                        "Initiative tied — both sides act simultaneously"
+                        if left_face == right_face
+                        else f"{left_name if left_face > right_face else right_name} wins initiative and acts first"
+                    )
+                    text = (f"Round {e.round_index} initiative: "
+                            f"{left_name} {left_face}, {right_name} {right_face} — {verdict}")
             elif e.kind in ("ROUND_STARTED", "ROUND_COMPLETED"):
                 cue = "ROUND"
             elif e.kind == "ACTION_HELD":
@@ -549,14 +572,19 @@ class CombatSessionService:
             notable = [
                 event for event in public_log
                 if event["kind"] in (
-                    "MELEE_RESOLVED", "ACTION_HELD", "ROUND_COMPLETED",
-                    "ENCOUNTER_TERMINAL", "SIMULTANEOUS_EXCHANGE_COMMITTED",
+                    "ROUND_STARTED", "SIDE_INITIATIVE", "MELEE_RESOLVED",
+                    "ACTION_HELD", "ROUND_COMPLETED", "ENCOUNTER_TERMINAL",
+                    "SIMULTANEOUS_EXCHANGE_COMMITTED",
                 )
             ]
             if notable:
-                lines.append(" ".join(
-                    f"{_COMBAT_CUE_EMOJI.get(event.get('cue'), '')} {event['text']}.".strip()
-                    for event in notable[-8:]
+                # Each verified event gets a real newline; the browser
+                # preserves it with white-space: pre-wrap. Blank line before
+                # a new round makes transitions easy to scan.
+                lines.append("\n".join(
+                    ("\n" if event["kind"] == "ROUND_STARTED" else "")
+                    + f"{_COMBAT_CUE_EMOJI.get(event.get('cue'), '')} {event['text'].rstrip('.')}.".strip()
+                    for event in notable
                 ))
             if engine.outcome and not any(engine.outcome in line for line in lines):
                 badge = _COMBAT_CUE_EMOJI["VICTORY"] if engine.outcome == "PARTY_VICTORY" else _COMBAT_CUE_EMOJI["DEFEAT"]
