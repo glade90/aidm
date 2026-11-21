@@ -176,3 +176,37 @@ observed, no one should claim the actual provider call passed. Regression
 tests cover (1) fixed-faces Alho 4 + Evro 4 defeat, (2) read-only question,
 (3) no dice/HP/journal change, (4) exact visible target only and (5) no
 private foe HP/AC exposed.
+
+### Combat status emojis (display-only; verified 21 November 2026)
+
+The same verified source-backed event that drives the log now supplies a strict,
+optional `CombatLogView.cue` enum. The DM turns eligible verified event cues
+into concise emoji-prefixed sentences; the browser renders the **same cues** in
+the player-safe journal using `textContent`, never an HTML fragment. No model
+can set a cue or claim a hit without a corresponding validated engine event.
+
+| Icon | Combat meaning | Cued by |
+| --- | --- | --- |
+| ⚔️ | Hit | Controller's source-resolved `MELEE_RESOLVED.hit = true` |
+| 💨 | Miss | Controller's source-resolved `MELEE_RESOLVED.hit = false` |
+| 💀 | Falls / defeated / incapacitated | Visible foe or party member HP crosses positive to zero |
+| ✋ | Hold | Valid controller `ACTION_HELD` |
+| 🔄 | Round change | Controller `ROUND_STARTED` / `ROUND_COMPLETED` |
+| 🎲 | Initiative | Controller `SIDE_INITIATIVE` |
+| 🏆 | Party victory | Controller `ENCOUNTER_TERMINAL: PARTY_VICTORY` |
+| 💔 | Party defeat | Controller `ENCOUNTER_TERMINAL: PARTY_DEFEAT` |
+| 🏁 | Other terminal outcome | Controller `ENCOUNTER_TERMINAL` without a resolved win/loss |
+
+**Crucially, 💀 means out of the fight, NOT necessarily dead**: the current
+engine does not support an independent death/unconsciousness determination.
+An attack that deals damage but does not cause a fall remains ⚔️. A hit
+reducing a combatant to zero is 💀 in preference to ⚔️ (the original damage
+sentence is retained). Metadata includes no private monster HP or AC.
+Unknown/untrusted cues fail the typed HTTP boundary and are never interpreted
+as raw HTML. Emoji-free existing textual narrative and raw die breakdown
+remain in the log, so emojis are optional visual shorthand only.
+
+Tests verify strict cue enum, actual fixed-dice hit/miss/fall/hold/victory
+events, and text-safe journal rendering with malformed cues. The actual
+PEQUOD full runner and Node CLI must be repeated for this latest draft head
+before developer sign-off; prior clean runs refer to earlier commits.
