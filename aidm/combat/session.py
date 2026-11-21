@@ -43,6 +43,13 @@ _ORC_STATUS_QUESTION = re.compile(
     re.IGNORECASE,
 )
 _ORC_TARGET_ONLY = re.compile(r"(?:orc[ -]?)?0*([1-9][0-9]*)", re.IGNORECASE)
+# Display-only cues are derived from verified engine events. In particular,
+# FALL means incapacitated/out of the fight, not confirmed dead.
+_COMBAT_CUE_EMOJI = {
+    "HIT": "⚔️", "MISS": "💨", "FALL": "💀", "HOLD": "✋",
+    "ROUND": "🔄", "INITIATIVE": "🎲",
+    "VICTORY": "🏆", "DEFEAT": "💔", "END": "🏁",
+}
 
 
 class IntentPolicy(Protocol):
@@ -343,6 +350,19 @@ class CombatSessionService:
                 continue
             text = e.public_message
             roll = None
+            cue = None
+            if e.kind == "SIDE_INITIATIVE":
+                cue = "INITIATIVE"
+            elif e.kind in ("ROUND_STARTED", "ROUND_COMPLETED"):
+                cue = "ROUND"
+            elif e.kind == "ACTION_HELD":
+                cue = "HOLD"
+            elif e.kind == "ENCOUNTER_TERMINAL":
+                cue = (
+                    "VICTORY" if e.details.get("outcome") == "PARTY_VICTORY"
+                    else "DEFEAT" if e.details.get("outcome") == "PARTY_DEFEAT"
+                    else "END"
+                )
             if e.kind == "PHASE_CHECKPOINT":
                 label = e.details.get("status")
                 if label in ("SCENARIO_RULE_DISABLED", "STATIONARY_SCENARIO", "NOT_DUE",
@@ -359,13 +379,16 @@ class CombatSessionService:
                 # enemy initiative incapacitates the retainer before his turn.
                 # Never display a creature's exact HP in this projection.
                 target_id = d.get("target_id")
+                cue = "HIT" if d.get("hit") is True else "MISS"
                 if target_id in player_ids and d.get("hp_after") == 0 and d.get("hp_before", 0) > 0:
                     text += f". {player_ids[target_id]} falls"
+                    cue = "FALL"
                 elif (target_id in visible_foes and d.get("hp_after") == 0
                       and d.get("hp_before", 0) > 0):
                     # Zero HP means defeated/incapacitated in this engine,
                     # NOT an authoritative ruling on death vs unconsciousness.
                     text += f". {visible_foes[target_id]} falls"
+                    cue = "FALL"
                 roll = {
                     "attack_face": raw_attack["face"] if raw_attack else None,
                     "attack_die_id": raw_attack["die_id"] if raw_attack else None,
@@ -384,6 +407,8 @@ class CombatSessionService:
                 }
                 if roll is not None:
                     item["roll"] = roll
+                if cue is not None:
+                    item["cue"] = cue
                 allowed.append(item)
         return allowed, events[-1].seq if events else 0
 
@@ -483,19 +508,28 @@ class CombatSessionService:
             # A DM must report VERIFIED in-world events, not 'action accepted'.
             # Raw dice and phases remain in the separate complete audit log.
             lines = []
-            if message and message != "Combat action accepted.":
+            terminal_in_log = any(
+                event["kind"] == "ENCOUNTER_TERMINAL" for event in public_log
+            )
+            if message and message != "Combat action accepted." and not (
+                terminal_in_log and message.startswith("Combat ended:")
+            ):
                 lines.append(message)
             notable = [
-                event["text"] for event in public_log
+                event for event in public_log
                 if event["kind"] in (
                     "MELEE_RESOLVED", "ACTION_HELD", "ROUND_COMPLETED",
                     "ENCOUNTER_TERMINAL", "SIMULTANEOUS_EXCHANGE_COMMITTED",
                 )
             ]
             if notable:
-                lines.append(" ".join(f"{part}." for part in notable[-8:]))
+                lines.append(" ".join(
+                    f"{_COMBAT_CUE_EMOJI.get(event.get('cue'), '')} {event['text']}.".strip()
+                    for event in notable[-8:]
+                ))
             if engine.outcome and not any(engine.outcome in line for line in lines):
-                lines.append(f"Combat ended: {engine.outcome}.")
+                badge = _COMBAT_CUE_EMOJI["VICTORY"] if engine.outcome == "PARTY_VICTORY" else _COMBAT_CUE_EMOJI["DEFEAT"]
+                lines.append(f"{badge} Combat ended: {engine.outcome}.")
             if not lines and not next_prompt:
                 lines.append("The combat controller requires a ruling.")
             summary = "\n\n".join(lines)
