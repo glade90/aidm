@@ -42,6 +42,8 @@ class OpenAIResponsesPolicy:
     A failed request does not trigger automatic retry or a combat command.
     """
 
+    mode = "LIVE_LLM"
+
     def __init__(self, *, api_key: str, model: str, timeout_seconds: float = 10,
                  transport: Callable[[bytes, str, float], dict[str, Any]] = _post_json) -> None:
         if not isinstance(api_key, str) or not api_key.strip():
