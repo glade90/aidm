@@ -164,10 +164,10 @@ BEGIN TRY
      N'Mentzer approx. 5ft body length -> R1=2.5ft; R2=2ft and Z=2ft estimated for leg span/height.');
 
     UPDATE m
-       SET m.[R1Feet] = d.[R1Feet],
-           m.[R2Feet] = d.[R2Feet],
-           m.[ZFeet] = d.[ZFeet],
-           m.[SizeBasis] = d.[NewBasis]
+       SET [R1Feet] = d.[R1Feet],
+           [R2Feet] = d.[R2Feet],
+           [ZFeet] = d.[ZFeet],
+           [SizeBasis] = d.[NewBasis]
     FROM [Rules].[Monster] AS m
     JOIN @DraftShapes AS d ON d.[MonsterCode] = m.[MonsterCode]
     WHERE m.[RulesetCode] = N'MentzerBECMI'
