@@ -113,6 +113,8 @@ class CombatLogView(BaseModel):
     phase: str = Field(max_length=80)
     kind: str = Field(max_length=80)
     text: str = Field(max_length=1000)
+    cue: Literal["HIT", "MISS", "FALL", "HOLD", "ROUND", "INITIATIVE",
+                 "VICTORY", "DEFEAT", "END"] | None = None
     roll: CombatRollView | None = None
 
 
