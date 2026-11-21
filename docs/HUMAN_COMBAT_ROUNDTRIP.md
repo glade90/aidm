@@ -245,3 +245,19 @@ Alho's miss, exactly one fall on the source-backed exchange commit,
 correct DM text and no leaked private HP/AC. The owner must rerun
 source-matched PEQUOD tests and the browser on the latest SHA to certify
 this correction.
+
+
+### Third browser UX refinement — initiative clarity, multiline DM, and tailing scroll (21 November 2026)
+
+Owner identified three usability issues:
+1. Generic 'Round X: side initiative rolled' does not identify which side acts first, particularly on tied rounds.
+2. The DM combat reply concatenated many events into one long paragraph.
+3. Scrollbars did not automatically tail new messages.
+
+The combat session's public SIDE_INITIATIVE projector now reads only actual engine-owned faces_by_side for the two approved combat sides. It announces each side's numeric d6 result and Party wins and acts first, Orcs win and act first, or Initiative tied — both sides act simultaneously. This is only a public display projection: the engine remains authoritative for initiative, side order and simultaneous damage. Both the full journal and DM's response contain the source-backed result.
+
+The DM narration now renders each verified action/event on a separate line, including round-start and initiative lines, with a blank line before a new round. The existing CSS .message p { white-space: pre-wrap; } displays the actual newline characters and preserves the player decision prompt. Nothing is inserted as raw HTML.
+
+The transcript's scrollable element is .chat-panel; the combat journal's is .combat-board. Previously the JS assigned scrollTop to their inner non-scrolling ordered lists. The UI now sets scrollTop = scrollHeight on the correct parent after appending player/DM messages or fresh journal events. This deliberately follows new messages to the tail, per owner request.
+
+Added Python fixed-dice tests for party initiative win, orc initiative win, tied initiative, and round-two initiative text/carriage returns. Expanded offline JS DOM tests verify newlines remain in textContent and both actual scrollbar containers tail after new replies. Latest source-matched PEQUOD Python/Node full regression and manual browser verification remain required.
