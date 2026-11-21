@@ -283,7 +283,8 @@ test("DM multiline events keep carriage returns and auto-tail the real scroll co
   assert.equal(panel.scrollTop, panel.scrollHeight, "Chat panel follows new DM reply");
   assert.equal(board.scrollTop, board.scrollHeight, "Combat board follows new journal item");
   assert.equal(transcript.scrollTop, 0, "Non-scrolling <ol> is not used");
-  assert.equal(transcript.children.at(-1).children[1].textContent, message);
+  assert.ok(transcript.children.at(-1).children[1].textContent.startsWith(message));
+  assert.match(transcript.children.at(-1).children[1].textContent, /Next decision:/);
 
   panel.scrollTop = 0;
   board.scrollTop = 0;
