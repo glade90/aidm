@@ -1,6 +1,7 @@
 /* AIDM-DES-014.1 — testable, framework-free Meta /api/turn HTTP client.
  * The browser owns no Combat API, rules, world state or persistent game memory.
  * Change Log: 2026-11-20 DAVOS — correct native fetch receiver (browser failure).
+ *             2026-11-20 DAVOS — AIDM-DES-025.2 optional combat turns.
  */
 
 const STATUSES = new Set([
@@ -34,11 +35,97 @@ export class ChatApiClient {
     // The current Meta contract *echoes* the client's session ID; it does
     // not mint or persist one. Never claim this is authoritative game memory.
     this.sessionId = sessionId ?? this.idFactory("session");
+    this.combatState = null;
+    this.actionUncertain = false; // Must inspect trusted state before retry.
+  }
+
+  async startCombat() {
+    const result = await this._send("", { kind: "START", log_since_sequence: 0 });
+    if (result.combat && result.status !== "ERROR") {
+      this.actionUncertain = false; // START can re-sync after uncertain RESET.
+    }
+    return result;
+  }
+
+  async resetCombat() {
+    if (!this.combatState) {
+      return {
+        status: "NEEDS_PLAYER_INPUT", message: "Start a combat encounter first.",
+        combat: null, simulated: false,
+      };
+    }
+    const oldId = this.combatState.encounter_id;
+    const result = await this._send("", {
+      kind: "RESET", encounter_id: oldId, log_since_sequence: 0,
+    });
+    // Do not claim a reset until the server returns a distinct encounter
+    // and a fresh player decision. On an uncertain reset, block ACTION until
+    // an explicit START re-sync (VIEW_LOG may now have a stale encounter id).
+    if (result.combat && result.combat.encounter_id !== oldId
+        && result.status !== "ERROR") {
+      this.actionUncertain = false;
+    } else if (result.status === "ERROR") {
+      this.actionUncertain = true;
+    }
+    return result;
+  }
+
+  async viewCombatLog() {
+    if (!this.combatState) {
+      return {
+        status: "NEEDS_PLAYER_INPUT", message: "Start a combat encounter first.",
+        combat: null, simulated: false,
+      };
+    }
+    const result = await this._send("", {
+      kind: "VIEW_LOG", encounter_id: this.combatState.encounter_id,
+      log_since_sequence: 0,
+    });
+    if (result.combat && result.status !== "ERROR") {
+      this.actionUncertain = false;
+    }
+    return result;
   }
 
   async send(message) {
+    if (!this.combatState) return this._send(message, null);
+    if (this.actionUncertain) {
+      return {
+        status: "BLOCKED",
+        message: "A previous combat outcome may still be completing. View the full combat log before another action.",
+        combat: null, simulated: false,
+      };
+    }
+    if (this.combatState.terminal) {
+      return {
+        status: "BLOCKED", message: "Combat has ended. View the log for the outcome.",
+        combat: this.combatState, simulated: false,
+      };
+    }
+    const decision = this.combatState.next_decision;
+    if (!decision || !this.combatState.awaiting_player) {
+      return {
+        status: "NEEDS_PLAYER_INPUT", message: "No player decision is currently ready. View the log.",
+        combat: this.combatState, simulated: false,
+      };
+    }
+    const result = await this._send(message, {
+      kind: "ACTION",
+      encounter_id: this.combatState.encounter_id,
+      actor_id: decision.actor_id,
+      decision_token: decision.decision_token,
+      expected_encounter_version: this.combatState.state_version,
+      client_action_id: this.idFactory("action"),
+      log_since_sequence: this.combatState.log_next_cursor,
+    });
+    if (result.status === "ERROR") this.actionUncertain = true;
+    return result;
+  }
+
+  async _send(message, combat) {
     const correlationId = this.idFactory("turn");
-    if (typeof message !== "string" || !message.trim()) {
+    if ((combat === null || combat.kind === "ACTION")
+        && (typeof message !== "string" || !message.trim())) {
       return {
         status: "NEEDS_PLAYER_INPUT", message: "Please enter a message.",
         correlationId, sessionId: this.sessionId, simulated: false,
@@ -51,7 +138,9 @@ export class ChatApiClient {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message, session_id: this.sessionId, correlation_id: correlationId,
+          ...((combat === null || combat.kind === "ACTION") ? { message } : {}),
+          session_id: this.sessionId, correlation_id: correlationId,
+          ...(combat !== null ? { combat } : {}),
         }),
       });
 
@@ -90,10 +179,24 @@ export class ChatApiClient {
             : BAD_REPLY_MESSAGE
       );
 
+      const combatView = body.combat && typeof body.combat === "object"
+        && typeof body.combat.encounter_id === "string"
+        && Number.isInteger(body.combat.state_version)
+        && Number.isInteger(body.combat.log_next_cursor)
+        && Array.isArray(body.combat.new_log_entries)
+        ? body.combat : null;
+      // A denial may correctly omit a combat view (e.g. wrong encounter).
+      // But a purported successful typed combat response must include one.
+      if (combat !== null && combatView === null
+          && body.status === "COMPLETED") {
+        return this.badReply(correlationId);
+      }
+      if (combatView !== null) this.combatState = combatView;
+
       return {
         status: body.status, message: approvedText,
         correlationId, sessionId: this.sessionId,
-        simulated: body.simulated === true,
+        simulated: body.simulated === true, combat: combatView,
       };
     } catch {
       // Never render raw network errors or backend tracebacks.

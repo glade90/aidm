@@ -3,6 +3,7 @@
 Purpose: Prove one local app, static page, and Browser/Meta/DM/Combat seam.
 Usage: python -m pytest aidm/web/test/test_web_chat.py -q
 Change Log: 2026-11-20 DAVOS — first HTML chat and stub roundtrip tests.
+            2026-11-20 DAVOS — AIDM-DES-025.2 new combat session capability.
             2026-11-20 DAVOS — restrict unsafe HTML source check to property access.
 
 Browser DOM/fetch contract tests are separate, offline Node built-in tests at
@@ -56,7 +57,7 @@ def test_single_meta_app_serves_chat_and_same_origin_modules():
             assert asset.status_code == 200
         assert "javascript" in client.get("/static/client.mjs").headers["content-type"]
         assert client.get("/health").json() == {"state": "READY", "ready": True}
-        assert client.get("/status").json()["capabilities"] == ["combat", "dm"]
+        assert client.get("/status").json()["capabilities"] == ["combat", "combat_session", "dm"]
 
 
 def test_frontend_only_references_existing_meta_turn_api_and_safe_text():
