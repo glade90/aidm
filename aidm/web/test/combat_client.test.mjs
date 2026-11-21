@@ -175,7 +175,7 @@ test("journal renders only escaped text, ordered incremental entries and termina
   const malicious = "<img src=x onerror=alert(1)>";
   const logs = [
     { seq: 1, round: 1, phase: "MELEE", kind: "MELEE_RESOLVED",
-      text: malicious, roll: { attack_face: 12, attack_modifier: 3, attack_total: 15,
+      cue: "HIT", text: malicious, roll: { attack_face: 12, attack_modifier: 3, attack_total: 15,
         damage_face: 5, damage_modifier: 3, damage_total: 8 } },
   ];
   const client = {
@@ -196,8 +196,51 @@ test("journal renders only escaped text, ordered incremental entries and termina
   assert.match(journal.children[0].textContent, /d20 12 \+ 3 = 15/);
   assert.match(journal.children[0].textContent, /damage die 5 \+ 3 = 8/);
   assert.ok(journal.children[0].textContent.includes(malicious));
+  assert.match(journal.children[0].textContent, /^⚔️ R1/);
   assert.match(dom.controls["party-outcome"].textContent, /Alho: 8\/8 HP/);
+  assert.match(dom.controls["party-outcome"].textContent, /^🏆 Outcome:/);
+  assert.match(dom.controls["party-status"].textContent, /💀 Evro:/);
   assert.match(dom.controls["party-status"].textContent, /Evro: 0\/8 HP \(down\)/);
   assert.match(dom.controls["combat-status"].textContent, /Offline scripted intentions/);
   assert.match(dom.controls["party-status"].textContent, /Sho-Rembo: 7\/9 HP/);
+});
+
+test("miss, fall, hold, round, and victory cues render as safe text only", async () => {
+  const dom = makeDom();
+  const entries = [
+    { seq: 1, round: 1, phase: "PRE_INITIATIVE", kind: "ROUND_STARTED", cue: "ROUND",
+      text: "Round 1 begins" },
+    { seq: 2, round: 1, phase: "INITIATIVE", kind: "SIDE_INITIATIVE", cue: "INITIATIVE",
+      text: "Initiative rolled" },
+    { seq: 3, round: 1, phase: "MELEE", kind: "MELEE_RESOLVED", cue: "MISS",
+      text: "Orc 1 misses Evro" },
+    { seq: 4, round: 1, phase: "MELEE", kind: "MELEE_RESOLVED", cue: "FALL",
+      text: "Evro hits Orc 1 for 8 damage. Orc 1 falls" },
+    { seq: 5, round: 1, phase: "MELEE", kind: "ACTION_HELD", cue: "HOLD",
+      text: "Sho-Rembo holds position" },
+    { seq: 6, round: 1, phase: "DM_SPECIAL_END", kind: "ENCOUNTER_TERMINAL",
+      cue: "VICTORY", text: "Combat ends: PARTY_VICTORY" },
+    { seq: 7, round: 1, phase: "MELEE", kind: "UNTRUSTED", cue: "ANY_HTML",
+      text: "<script>not executed</script>" },
+  ];
+  const fake = {
+    combatState: null,
+    async startCombat() {
+      this.combatState = view(5, { terminal: true, cursor: 7, events: entries });
+      return { status: "COMPLETED", message: "Combat ended",
+        combat: this.combatState, simulated: false };
+    },
+  };
+  mountChat({ documentRef: dom, client: fake });
+  await dom.controls["combat-start"].listeners.click();
+  const journal = dom.controls["combat-events"].children;
+  assert.equal(journal.length, entries.length);
+  assert.match(journal[0].textContent, /^🔄 R1/);
+  assert.match(journal[1].textContent, /^🎲 R1/);
+  assert.match(journal[2].textContent, /^💨 R1/);
+  assert.match(journal[3].textContent, /^💀 R1/);
+  assert.match(journal[4].textContent, /^✋ R1/);
+  assert.match(journal[5].textContent, /^🏆 R1/);
+  assert.match(journal[6].textContent, /^R1/);
+  assert.ok(journal[6].textContent.includes("<script>not executed</script>"));
 });
