@@ -112,7 +112,10 @@ def test_real_start_only_path_preserves_meta_contract_and_human_prompt():
         assert "Alho" in v["next_decision"]["prompt"]
         assert "enc-" in v["encounter_id"]
         assert sources[0].cursor == 2  # raw initiative faces only
-        assert any(x["kind"] == "SIDE_INITIATIVE" for x in v["new_log_entries"])
+        assert any(x["kind"] == "SIDE_INITIATIVE" and x["cue"] == "INITIATIVE"
+                   for x in v["new_log_entries"])
+        assert any(x["kind"] == "ROUND_STARTED" and x["cue"] == "ROUND"
+                   for x in v["new_log_entries"])
         assert client.get("/status").json()["capabilities"] == ["combat", "combat_session", "dm"]
         assert client.get("/chat").status_code == 200
         assert service._sessions["s1"].engine.snapshot()["hp"]["orc-01"] == 6
@@ -129,6 +132,9 @@ def test_two_real_rounds_roll_math_human_handoff_and_terminal_in_browser_api():
         # Evro is AGENT: no browser prompt, but his actual attack was resolved.
         evro = [e for e in v1["new_log_entries"] if e["kind"] == "MELEE_RESOLVED"]
         assert len(evro) == 1
+        assert evro[0]["cue"] == "FALL"  # Source-backed HP fell to zero.
+        assert "💀" in a1["message"]
+        assert "✋" in a1["message"]  # Alho held.
         roll = evro[0]["roll"]
         assert roll["attack_face"] == 12
         assert roll["attack_modifier"] == 3 and roll["attack_total"] == 15
@@ -174,7 +180,9 @@ def test_two_real_rounds_roll_math_human_handoff_and_terminal_in_browser_api():
         assert [e["seq"] for e in logs] == sorted(set(e["seq"] for e in logs))
         assert any(e["kind"] == "ROUND_STARTED" and e["round"] == 1 for e in logs)
         assert any(e["kind"] == "ROUND_STARTED" and e["round"] == 2 for e in logs)
-        assert any(e["kind"] == "ENCOUNTER_TERMINAL" for e in logs)
+        assert any(e["kind"] == "ENCOUNTER_TERMINAL" and e["cue"] == "VICTORY"
+                   for e in logs)
+        assert "🏆" in done["message"]
         assert any(e["phase"] == "MISSILE" and "SCENARIO_RULE_DISABLED" in e["text"]
                    for e in logs)
         text = json.dumps(whole)
@@ -257,6 +265,9 @@ def test_initiative_can_incapacitate_evro_before_his_action_and_dm_reports_it():
         assert "Orc 1 hits Evro for 6 damage" in started["message"]
         assert "Orc 3 hits Evro for 3 damage" in started["message"]
         assert "Evro falls" in started["message"]
+        assert "💀" in started["message"]
+        assert any(e["cue"] == "FALL" and "Evro falls" in e["text"]
+                   for e in view["new_log_entries"])
         assert any("Evro falls" in e["text"]
                    for e in view["new_log_entries"])
         assert not any(e.actor_id == "evro" and e.kind == "MELEE_RESOLVED"
@@ -291,6 +302,10 @@ def test_visible_orc_falls_at_zero_hp_and_dm_announces_knockout():
         assert "Alho hits Orc 1 for 4 damage" in response["message"]
         assert "Evro hits Orc 1 for 4 damage" in response["message"]
         assert "Orc 1 falls" in response["message"]
+        assert "💀" in response["message"]
+        actual_hits = [e for e in view["new_log_entries"] if e["kind"] == "MELEE_RESOLVED"]
+        assert [e["cue"] for e in actual_hits] == ["HIT", "FALL"]
+        assert "⚔️" in response["message"]
         assert any("Orc 1 falls" in e["text"]
                    for e in view["new_log_entries"] if e["kind"] == "MELEE_RESOLVED")
         assert "orc-01" not in view["next_decision"]["allowed_targets"]
@@ -372,6 +387,21 @@ def test_status_question_never_invokes_even_an_injected_llm():
         assert (policy.proposals, policy.narrations) == (prior_proposals, prior_narrations)
         assert service._sessions["s1"].engine.snapshot() == before
         assert sources[0].cursor == cursor
+
+
+def test_safe_combat_event_cue_schema_rejects_unrecognised_hints():
+    from pydantic import ValidationError
+    from aidm.meta.turn import CombatLogView
+
+    event = {
+        "seq": 1, "round": 1, "phase": "MELEE",
+        "kind": "MELEE_RESOLVED", "text": "Orc 1 falls",
+    }
+    assert CombatLogView.model_validate({**event, "cue": "FALL"}).cue == "FALL"
+    with pytest.raises(ValidationError):
+        CombatLogView.model_validate({**event, "cue": "SECRET_RULE"})
+    with pytest.raises(ValidationError):
+        CombatLogView.model_validate({**event, "cue": "<script>alert(1)</script>"})
 
 
 def test_bad_actor_target_token_and_duplicate_action_never_roll():
