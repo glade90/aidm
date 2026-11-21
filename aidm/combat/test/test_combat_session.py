@@ -121,6 +121,32 @@ def test_real_start_only_path_preserves_meta_contract_and_human_prompt():
         assert service._sessions["s1"].engine.snapshot()["hp"]["orc-01"] == 6
 
 
+@pytest.mark.parametrize("faces, expected_text", [
+    ((6, 2), "Round 1 initiative: Party 6, Orcs 2 — Party wins initiative and acts first"),
+    ((2, 6, 1, 1, 1),
+     "Round 1 initiative: Party 2, Orcs 6 — Orcs win initiative and act first"),
+    ((6, 6), "Round 1 initiative: Party 6, Orcs 6 — Initiative tied — both sides act simultaneously"),
+])
+def test_each_initiative_roll_names_source_verified_winner_or_tie(faces, expected_text):
+    app, service, sources = make_app(faces=faces)
+    with TestClient(app) as client:
+        initial = start(client)
+        assert initial["status"] == "NEEDS_PLAYER_INPUT"
+        assert expected_text in initial["message"]
+        assert "\n🎲 " in initial["message"]
+        assert "🔄 Round 1 begins." in initial["message"]
+        assert "\n" in initial["message"]
+        events = initial["combat"]["new_log_entries"]
+        initiative = [event for event in events if event["kind"] == "SIDE_INITIATIVE"]
+        assert len(initiative) == 1
+        assert initiative[0]["text"] == expected_text
+        assert initiative[0]["cue"] == "INITIATIVE"
+        assert initiative[0]["round"] == 1
+        assert sources[0].cursor == len(faces)
+        assert "faces_by_side" not in json.dumps(initial)
+        assert "defender_ac" not in json.dumps(initial)
+
+
 def test_two_real_rounds_roll_math_human_handoff_and_terminal_in_browser_api():
     app, service, sources = make_app()
     with TestClient(app) as client:
@@ -152,6 +178,10 @@ def test_two_real_rounds_roll_math_human_handoff_and_terminal_in_browser_api():
         v2 = a2["combat"]
         assert a2["status"] == "NEEDS_PLAYER_INPUT"
         assert v2["current_round"] == 2 and v2["next_decision"]["actor_id"] == "alho"
+        assert "Round 2 initiative: Party 6, Orcs 2" in a2["message"]
+        assert "Party wins initiative and acts first" in a2["message"]
+        assert "\n🎲 " in a2["message"]
+        assert "\n" in a2["message"]
         assert a2["session_id"] == "s1"
         assert a1["correlation_id"] != a2["correlation_id"]
         assert len([e for e in service._sessions["s1"].engine.journal()
