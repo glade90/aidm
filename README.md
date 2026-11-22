@@ -18,7 +18,7 @@ This repository is an evolving **engineering foundation**, not yet a complete pl
 - **Rules and narrative:** Select a gameplay ruleset and add explicit house rules. For example, Mentzer Basic can govern gameplay while 5e-inspired material adds descriptive color without complicating the gameplay.
 - **Dungeon builder:** Offer three modes: upload a PDF module, generate a dungeon with AI assistance, or generate one entirely with AI. The two generation modes are intended to use a pretrained `aidm-x.x` model.
 - **Player builder:** Help create characters and generate or assist with their backstories.
-- **Artwork generation:** Create illustrations in selectable styles, such as 1980s fantasy, classic inked dungeon maps, painterly high fantasy and parchment-and-ink.
+- **Artwork generation:** Create illustrations in selectable styles, such as 1980s fantasy, classic inked dungeon maps, painterly high fantasy and parchment-and-ink.  [Check out the images generated in the pre-run adventure and testing](https://github.com/glade90/aidm/tree/main/assets/images)
 - **Encounters and combat:** AI agents can coordinate ruleset-aware deterministic tools for varied enemies and encounters, supporting large and changing rosters without hand-coding a separate agent for every enemy. Deterministic tools—not AI improvisation—determine legal actions and outcomes.
 - **Application development:** A multi-agent `Braider` team supports development in a workflow inspired by the Maestro AI model: ALEK handles programme management, BON focuses on architecture and UAT, and COSTA, DAVOS and ESTER handle implementation and technical work. See the [Maestro AI capstone paper](https://github.com/glade90/maestro-harvard-capstone/blob/main/paper/MaestroAI-Capstone.pdf).
 
@@ -34,7 +34,7 @@ This repository is an evolving **engineering foundation**, not yet a complete pl
 | **Data** | Microsoft SQL Server, versioned rules catalogues, and structured JSON |
 | **Testing** | pytest, pytest-cov, deterministic fixtures, JUnit XML, coverage gates, and independent UAT |
 | **Observability** | Structured logging, correlation IDs, runtime diagnostics, and build identity |
-| **Engineering workflow** | Git, GitHub, persistent developer branches, pull requests, Scrum-style iterations, and the Maestro AI-inspired roles ALEK (programme management), BON (architecture and UAT), and COSTA, DAVOS and ESTER (implementation and technical work) |
+| **Engineering workflow** | Git, GitHub, persistent developer branches and human-less testing and deployment, pull requests, Scrum-style iterations, and the Maestro AI-inspired roles ALEK (programme management), BON (architecture and UAT), and COSTA, DAVOS and ESTER (implementation and technical work) |
 | **Governance** | Airtable work tracking, OneNote Engineering Standards, documented architecture decisions, and agent-evaluation criteria |
 | **Future capabilities** | CrewAI integration, RAG-based retrieval, durable event-sourced game state, and more autonomous multi-agent orchestration are roadmap areas, not claims about the current implementation |
 
