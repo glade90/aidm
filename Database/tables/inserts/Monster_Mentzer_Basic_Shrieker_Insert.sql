@@ -27,8 +27,9 @@ BOUNDARIES / OPEN RULINGS
 - One alarm and the arrival events are ENCOUNTER / EXPEDITION responsibilities.
   Wandering monster identity/reaction come from dungeon context and ordinary
   encounter rules; do not treat responding monsters as automatically hostile.
-- Earlier four-Shrieker SHRIEKER-T001 sample, HP and surprise rolls were
-  PROPOSED, NOT APPROVED; NO scenario/test-case SQL is created here.
+- Companion Encounter test definition files seed SHRIEKER-T001 from the
+  earlier saved rolls and SHRIEKER-T002 from new independent synthetic rolls.
+  Both remain Specified/Not Ready; THIS SPECIES FILE does not seed tests.
 - Previously proposed D1=4, D2=4, Z=5 feet estimates were not approved:
   dimensions remain NULL. No source-backed physical dimensions are known.
 - Image asset is a separate static file; this SQL references its repo path.
@@ -91,9 +92,9 @@ BEGIN TRY
             N'Light within 60 feet OR movement within 30 feet triggers a piercing shriek lasting 1-3 rounds. For EACH round of shrieking, the DM rolls 1d6: results 4-6 indicate that a wandering monster heard the noise and will arrive in 2-12 rounds. Owner ruling: simultaneously triggered Shriekers in the same group produce ONE alarm, with one hearing check per alarm-round, not one per individual Shrieker. The published monster entry does not specify whether multiple successful checks represent distinct arrivals, how continuing light/movement retriggers an alarm, the maximum audible range, or precisely when an ongoing shriek is interrupted; leave those questions open for Encounter design. The dungeon wandering-monster table determines the responding creatures, and the DM resolves their reactions using ordinary encounter rules rather than automatic hostility. Once hearing is successful, record an arrival due later; do not teleport a monster directly into the same round. Alarm countdowns and any arrivals may outlast the Shrieker encounter. The normal wandering-monster procedure for loud combat is a separate exploration-turn system, not an automatic additional monster every combat round.',
             NULL, NULL, NULL,
             N'No published dimensions; previous AIDM estimate of 4 x 4 x 5 ft was proposed but not approved.',
-            N'assets/images/monsters/AIDM_SHRIEKER_Species_Torchlit_Cavern_Illustration.webp',
+            N'assets/monsters/AIDM_SHRIEKER_Species_Torchlit_Cavern_Illustration.webp',
             NULL,
-            N'Species catalogue entry only. Shrieker is OUT OF SCOPE for Shrieker-specific Combat Engine fixtures. Earlier SHRIEKER-T001 count=4, HP=(6,6,19,15), surprise dice and alarm rolls remain an unapproved future Encounter fixture and are not seeded. SourceChecked/Active=0 until owner approves activation. One simultaneous group alarm is owner-approved; cap on wandering-monster arrival groups remains unresolved. The full-resolution original illustration is preserved separately in Golden Braid/AIDM/Illustrations.'
+            N'Species catalogue entry only. Shrieker is OUT OF SCOPE for Shrieker-specific Combat Engine fixtures. Encounter tests SHRIEKER-T001 (saved 4-Shrieker count and HP 6,6,19,15) and SHRIEKER-T002 (new independent movement-only rolls) are specified separately in scenario/case SQL. Both remain ReadyForExecution=0. SourceChecked/Active=0 until owner approves activation. One simultaneous group alarm is owner-approved; cap on wandering-monster arrival groups remains unresolved. The full-resolution original illustration is preserved separately in Golden Braid/AIDM/Illustrations.'
         );
         PRINT N'Inserted inactive SourceChecked Shrieker species.';
     END
