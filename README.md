@@ -2,7 +2,7 @@
 
 ![Adventuring party confronting stirges in a purple-lit cavern](assets/images/expedition_13_B1_partyFacesStirgesInThePurpleCorridor.png)
 
-AIDM is an agentic AI engineering project within **The Golden Braid**, Eric Kasper's personal journey through Agentic Engineering. It combines a browser-based conversational Dungeon Master, a model-agnostic Python agent framework, LLM-assisted orchestration, and deterministic, rules-verified game engines. Initial prototypes adapt **1983 Mentzer Basic D&D** and explicit approved house rules. The application is developed through an AI-assisted, multi-role engineering workflow using GitHub-based DevOps, automated regression testing, structured observability, and independent human acceptance testing.
+AIDM is an agentic AI engineering project within **The Golden Braid**, Eric Kasper's personal journey through Agentic Engineering. It combines a browser-based conversational Dungeon Master, a model-agnostic Python agent framework, LLM-assisted orchestration, and deterministic rules-verified game engines. Initial prototypes adapt **1983 Mentzer Basic D&D** and explicit approved house rules. The application is developed through an AI-assisted, multi-role engineering workflow using GitHub-based DevOps, automated regression testing, structured observability, and independent human acceptance testing.
 
 ## Mission
 
