@@ -12,9 +12,9 @@ AIDM aims to bring the openness of an old-school tabletop campaign to a computer
 
 This repository is an evolving **engineering foundation**, not yet a complete playable game. It includes a local Meta Service, a mocked player-turn demonstration, a thin DM gateway, a working deterministic combat prototype and a populated reference database of monsters, spells, weapons and other game content. The full multi-agent DM and the dungeon-, player- and artwork-generation workflows described above are not yet complete.
 
-## How AI is used
+## How AI is/will be used
 
-- **Dungeon Master:** The DM narrates adventures and expeditions, coordinate specialist agents such as Combat, Encounter, Bookkeeper, Timekeeper, Referee and NPC agents, and adapt to sandbox exploration. Deterministic services remain authoritative for rules such as combat algorithm and game state.
+- **Dungeon Master:** The DM narrates adventures and expeditions, coordinates specialist agents such as Combat, Encounter, Bookkeeper, Timekeeper, Referee and NPC agents, and adapts to sandbox exploration. Deterministic services remain authoritative for rules such as combat algorithm and game state.
 - **Rules and narrative:** Select a gameplay ruleset and add explicit house rules. For example, Mentzer Basic can govern gameplay while 5e-inspired material adds descriptive color without complicating the gameplay.
 - **Dungeon builder:** Offer three modes: upload a PDF module, generate a dungeon with AI assistance, or generate one entirely with AI. The two generation modes are intended to use a pretrained `aidm-x.x` model.
 - **Player builder:** Help create characters and generate or assist with their backstories.
