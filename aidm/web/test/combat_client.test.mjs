@@ -15,6 +15,9 @@ const ids = () => {
 function view(version = 0, { terminal = false, cursor = 4, events = [], encounterId = "enc-approved-one" } = {}) {
   return {
     encounter_id: encounterId,
+    fixture_id: "owner-canonical-3v3-fixture-v1",
+    fixture_label: "Owner-approved synthetic 3 vs 3",
+    fixture_status: "TEST_ONLY",
     intent_mode: "OFFLINE_SCRIPTED",
     state_version: version,
     current_round: terminal ? 2 : 1,
@@ -144,9 +147,10 @@ class FakeElement {
     this.value = ""; this.disabled = false; this.hidden = false;
     this.scrollHeight = 123; this.scrollTop = 0;
     this.textContent = ""; this.parentElement = null;
-    this.className = "";
+    this.className = ""; this.attributes = {};
   }
   addEventListener(kind, callback) { this.listeners[kind] = callback; }
+  setAttribute(name, value) { this.attributes[name] = value; }
   appendChild(child) { this.children.push(child); }
   replaceChildren() { this.children = []; }
   focus() {}
@@ -154,14 +158,21 @@ class FakeElement {
   set innerHTML(_) { throw new Error("UNSAFE_HTML"); }
 }
 
-function makeDom() {
+function makeDom({ withSelector = false } = {}) {
   const controls = {};
   const ids = [
     "chat-form", "player-message", "send-button", "transcript", "chat-panel",
     "service-status", "combat-start", "combat-reset", "combat-log", "combat-status",
     "combat-board", "combat-events", "party-outcome", "party-status",
   ];
+  if (withSelector) ids.push(
+    "battle-select", "battle-selector", "battle-fixture", "battle-selection-status"
+  );
   for (const key of ids) controls[key] = new FakeElement();
+  if (withSelector) {
+    controls["battle-selector"].hidden = true;
+    controls["battle-fixture"].value = "owner-canonical-3v3-fixture-v1";
+  }
   controls["service-status"].parentElement = new FakeElement();
   controls["transcript"].parentElement = controls["chat-panel"];
   controls["combat-events"].parentElement = controls["combat-board"];
@@ -411,4 +422,101 @@ test("Reset combat button clears the prior transcript and journal only on confir
   assert.equal(dom.controls["combat-reset"].disabled, false);
   assert.equal(dom.controls["chat-panel"].scrollTop, dom.controls["chat-panel"].scrollHeight);
   assert.equal(dom.controls["combat-board"].scrollTop, dom.controls["combat-board"].scrollHeight);
+});
+
+
+test("selected synthetic fixture is sent to Meta for START and RESET, not a combat endpoint", async () => {
+  const requests = [];
+  const client = new ChatApiClient({
+    idFactory: ids(),
+    fetcher: async (url, options) => {
+      const request = JSON.parse(options.body);
+      requests.push({ url, request });
+      const id = requests.length === 1 ? "enc-selected-first" : "enc-selected-second";
+      return fakeReply(request, view(0, { encounterId: id }), "NEEDS_PLAYER_INPUT");
+    },
+  });
+  const fixture = "owner-canonical-3v3-fixture-v1";
+  assert.equal((await client.startCombat(fixture)).status, "NEEDS_PLAYER_INPUT");
+  assert.equal(requests[0].url, "/api/turn");
+  assert.equal(requests[0].request.combat.fixture_id, fixture);
+  assert.equal(requests[0].request.combat.kind, "START");
+
+  assert.equal((await client.resetCombat(fixture)).status, "NEEDS_PLAYER_INPUT");
+  assert.equal(requests[1].url, "/api/turn");
+  assert.equal(requests[1].request.combat.kind, "RESET");
+  assert.equal(requests[1].request.combat.fixture_id, fixture);
+  assert.equal(requests[1].request.combat.encounter_id, "enc-selected-first");
+  assert.equal(client.combatState.encounter_id, "enc-selected-second");
+});
+
+
+test("Select Battle is keyboard-native and cannot start unsupported B1 fixture", async () => {
+  const dom = makeDom({ withSelector: true });
+  let calls = 0;
+  const fakeClient = {
+    combatState: null,
+    async startCombat(fixtureId) {
+      calls++;
+      assert.equal(fixtureId, "owner-canonical-3v3-fixture-v1");
+      this.combatState = view(0, { encounterId: "enc-source-backed" });
+      return { status: "NEEDS_PLAYER_INPUT", message: "Verified synthetic 3v3",
+        combat: this.combatState, simulated: false };
+    },
+  };
+  mountChat({ documentRef: dom, client: fakeClient });
+  assert.equal(dom.controls["battle-selector"].hidden, true);
+  dom.controls["battle-select"].listeners.click();
+  assert.equal(dom.controls["battle-selector"].hidden, false);
+  assert.equal(dom.controls["battle-select"].attributes["aria-expanded"], "true");
+  dom.controls["battle-fixture"].value = "b1.upper.wandering.01";
+  await dom.controls["combat-start"].listeners.click();
+  assert.equal(calls, 0, "UI must not offer unsupported test scenario to Meta");
+  assert.match(dom.controls["service-status"].textContent, /not verified or playable/);
+  assert.equal(fakeClient.combatState, null);
+  dom.controls["battle-fixture"].value = "owner-canonical-3v3-fixture-v1";
+  await dom.controls["combat-start"].listeners.click();
+  assert.equal(calls, 1);
+  assert.equal(dom.controls["combat-board"].hidden, false);
+  assert.match(dom.controls["battle-selection-status"].textContent,
+    /TEST_ONLY · Owner-approved synthetic 3 vs 3 · owner-canonical-3v3-fixture-v1/);
+});
+
+
+test("Selector leaves running fight unchanged until explicit approved reset confirmation", async () => {
+  const dom = makeDom({ withSelector: true });
+  let approval = false, confirmations = 0, resets = 0;
+  const fakeClient = {
+    combatState: null,
+    async startCombat(fixtureId) {
+      assert.equal(fixtureId, "owner-canonical-3v3-fixture-v1");
+      this.combatState = view(1, { encounterId: "enc-before" });
+      return { status: "NEEDS_PLAYER_INPUT", message: "Battle begins",
+        combat: this.combatState, simulated: false };
+    },
+    async resetCombat(fixtureId) {
+      resets++;
+      assert.equal(fixtureId, "owner-canonical-3v3-fixture-v1");
+      this.combatState = view(0, { encounterId: "enc-after" });
+      return { status: "NEEDS_PLAYER_INPUT", message: "Reset complete",
+        combat: this.combatState, simulated: false };
+    },
+  };
+  mountChat({
+    documentRef: dom, client: fakeClient,
+    confirmReset: () => { confirmations++; return approval; },
+  });
+  await dom.controls["combat-start"].listeners.click();
+  dom.controls["battle-select"].listeners.click();
+  assert.equal(fakeClient.combatState.encounter_id, "enc-before");
+  await dom.controls["combat-reset"].listeners.click();
+  assert.equal(confirmations, 1);
+  assert.equal(resets, 0);
+  assert.equal(fakeClient.combatState.encounter_id, "enc-before");
+  approval = true;
+  await dom.controls["combat-reset"].listeners.click();
+  assert.equal(confirmations, 2);
+  assert.equal(resets, 1);
+  assert.equal(fakeClient.combatState.encounter_id, "enc-after");
+  assert.equal(dom.controls["transcript"].children.length, 1);
 });
