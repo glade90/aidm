@@ -100,3 +100,22 @@ button:disabled { background: #a7b1b1; cursor: progress; }
 .party-outcome { font-size: .83rem; font-weight: 650; margin: 8px 0 0; white-space: pre-wrap; }
 .party-status { font-size: .83rem; font-weight: 600; margin: 4px 0 10px; padding: 7px 10px; border: 1px solid #d4d9db; border-radius: 6px; overflow-wrap: anywhere; }
 
+
+
+/* DES-001.7.1 first test/admin selector increment. B1 options stay disabled
+   until source-faithful fixtures and mechanics pass separate eligibility gates. */
+.battle-selector {
+  border: 1px solid #bac7c5; border-radius: 10px;
+  background: #edf2f0; padding: 13px 16px; margin: 0 0 12px;
+}
+.battle-selector[hidden] { display: none; }
+.battle-selector h2 { font-size: 1rem; margin: 0 0 4px; }
+.battle-selector p { font-size: .83rem; margin: 4px 0 10px; }
+.battle-selector label { display: block; font-weight: 700; font-size: .84rem; margin: 8px 0 4px; }
+#battle-fixture {
+  display: block; width: 100%; max-width: 580px; min-height: 40px;
+  padding: 8px 10px; font: inherit; border-radius: 8px;
+  color: #26313a; border: 1px solid #8c9aa1; background: #fff;
+}
+#battle-fixture option:disabled { color: #6a757b; }
+#battle-selection-status { font-weight: 700; overflow-wrap: anywhere; }
