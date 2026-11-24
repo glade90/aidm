@@ -35,3 +35,5 @@ Run from a clean checkout of the exact PR SHA. Report Git SHA, full JUnit result
 ### Local limited verification
 
 `test_round_agent.py` passed **11 focused tests** under a local test-only Braider/Responses contract stub. This is *not* the full checked-out application test suite, source-matched PEQUOD regression, Node browser suite or provider-backed demonstration. `aidm/combat/round_agent.py` compiled successfully. Published code requires actual-repo regression.
+
+**Telemetry:** Per-call token, cost and latency accounting is deferred; the existing provider currently does not return a typed usage receipt to Braider. This Story does not claim that telemetry is implemented, and the live demonstration must avoid printing credentials or raw private prompt context.
