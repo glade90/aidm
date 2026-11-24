@@ -34,6 +34,9 @@ from aidm.internal_messages import (
 )
 
 _IDENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
+# The only accepted first-increment selector fixture is the existing owner-approved
+# original 3-v-3 synthetic test, NOT a B1 module encounter.
+APPROVED_TEST_FIXTURE_ID = "owner-canonical-3v3-fixture-v1"
 _TURN_LIMIT = 128
 # Questions are read-only even when the browser is awaiting a combat ACTION.
 # Interpret no general natural language here: only narrow status questions.
@@ -130,6 +133,7 @@ class _ActiveEncounter:
     encounter_id: str
     lock: RLock
     seen_actions: set[str]
+    fixture_id: str
 
 
 class CombatSessionService:
@@ -194,9 +198,14 @@ class CombatSessionService:
                     return self._result(request, current, body, message="Combat journal retrieved.", read_only=True)
                 return self._action(request, current, body)
 
-    def _fresh_encounter(self, session_id: str) -> _ActiveEncounter:
-        """Construct a new real engine and independent roll source; no reuse."""
+    def _fresh_encounter(self, session_id: str,
+                         fixture_id: str = APPROVED_TEST_FIXTURE_ID) -> _ActiveEncounter:
+        """Use exactly one eligible synthetic fixture; future B1 provider is separate."""
+        if fixture_id != APPROVED_TEST_FIXTURE_ID:
+            raise ValueError("Unavailable combat test fixture")
         fixture = canonical_three_vs_three()
+        if fixture.fixture_id != fixture_id or fixture.rules_verified:
+            raise ValueError("Fixture eligibility contract mismatch")
         definition = fixture.encounter
         dice = canonical_dice_kit(definition)
         encounter_id = f"enc-{uuid4().hex}"
@@ -213,17 +222,23 @@ class CombatSessionService:
             roller=DiceRoller(self._source_factory()), dice=dice,
             profile=profile, session_id=session_id,
         )
-        return _ActiveEncounter(engine, encounter_id, RLock(), set())
+        return _ActiveEncounter(engine, encounter_id, RLock(), set(), fixture_id)
 
     def _start(self, request: InternalRequest) -> InternalResult:
         body = request.payload["combat"]
         if body.get("encounter_id") is not None:
             return safe_failure(request, ErrorCode.INVALID_INPUT, status=ResultStatus.BLOCKED)
+        fixture_id = body.get("fixture_id") or APPROVED_TEST_FIXTURE_ID
+        # Validate BEFORE touching the session map, dice or current battle.
+        if fixture_id != APPROVED_TEST_FIXTURE_ID:
+            return safe_failure(request, ErrorCode.UNSUPPORTED_RULE, status=ResultStatus.BLOCKED)
         with self._lock:
             current = self._sessions.get(request.session_id)
+            if current is not None and current.fixture_id != fixture_id:
+                return safe_failure(request, ErrorCode.UNSUPPORTED_RULE, status=ResultStatus.BLOCKED)
             if current is None:
                 try:
-                    current = self._fresh_encounter(request.session_id)
+                    current = self._fresh_encounter(request.session_id, fixture_id)
                 except Exception:
                     return safe_failure(request, ErrorCode.INTERNAL_ERROR)
                 self._sessions[request.session_id] = current
@@ -244,6 +259,10 @@ class CombatSessionService:
         START remains idempotent, while RESET explicitly creates a new fight.
         """
         body = request.payload["combat"]
+        fixture_id = body.get("fixture_id")
+        # Never allow an arbitrary B1 source ID to reset the running fixture.
+        if fixture_id is not None and fixture_id != APPROVED_TEST_FIXTURE_ID:
+            return safe_failure(request, ErrorCode.UNSUPPORTED_RULE, status=ResultStatus.BLOCKED)
         with self._lock:
             current = self._sessions.get(request.session_id)
             if (current is None or not isinstance(body.get("encounter_id"), str)
@@ -251,7 +270,7 @@ class CombatSessionService:
                 return safe_failure(request, ErrorCode.UNAUTHORISED, status=ResultStatus.BLOCKED)
             with current.lock:
                 try:
-                    fresh = self._fresh_encounter(request.session_id)
+                    fresh = self._fresh_encounter(request.session_id, fixture_id or current.fixture_id)
                 except Exception:
                     return safe_failure(request, ErrorCode.INTERNAL_ERROR)
                 self._sessions[request.session_id] = fresh
@@ -582,6 +601,9 @@ class CombatSessionService:
             )
         view = {
             "encounter_id": active.encounter_id,
+            "fixture_id": active.fixture_id,
+            "fixture_label": "Owner-approved synthetic 3 vs 3",
+            "fixture_status": "TEST_ONLY",
             "intent_mode": self._intent_mode,
             "state_version": snap["version"],
             "current_round": snap["round_index"],
