@@ -327,3 +327,32 @@ def test_live_llm_dotenv_missing_key_fails_without_secret_echo(tmp_path, monkeyp
         create_chat_app(logger=FakeLogger())
 
 
+
+
+def test_battle_fixture_selector_is_test_only_keyboard_accessible_and_b1_unavailable():
+    """No verified B1 source matrix yet: show inventory, never fake playability."""
+    with TestClient(app()) as client:
+        page = client.get("/chat")
+        assert page.status_code == 200
+        html = page.text
+        assert 'id="battle-select"' in html
+        assert 'type="button" aria-controls="battle-selector" aria-expanded="false"' in html
+        assert 'id="battle-selector"' in html
+        assert 'id="battle-fixture"' in html
+        assert 'id="battle-selection-status" role="status"' in html
+        assert 'value="owner-canonical-3v3-fixture-v1"' in html
+        assert "TEST_ONLY" in html and "TEST/ADMIN ONLY" in html
+        assert "B1 Upper Wandering" in html
+        assert "B1 Lower Wandering" in html
+        assert "B1 Optional Stock Entries" in html
+        assert "B1 Exceptional Rooms" in html
+        assert html.count("UNSUPPORTED (source fixture pending)") == 39
+        assert 'value="b1.upper.wandering.01" disabled' in html
+        assert 'value="b1.lower.wandering.06" disabled' in html
+        assert 'value="b1.stock.25" disabled' in html
+        assert 'value="b1.room.r54" disabled' in html
+        script = client.get("/static/chat.mjs").text
+        assert 'confirmReset(' in script
+        assert 'client.startCombat(selectedFixture())' in script
+        assert "textContent" in script and ".innerHTML" not in script
+
