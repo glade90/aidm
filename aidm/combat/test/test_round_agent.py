@@ -91,3 +91,30 @@ def test_live_responses_reuses_existing_injected_transport_no_second_provider():
     assert len(calls)==1 and calls[0][1]=="synthetic-not-real-key"
     req=calls[0][0];assert req["model"]=="fixture-mini" and req["store"] is False
     assert "synthetic-not-real-key" not in json.dumps(req)
+
+
+def test_integrated_gateway_narrates_once_on_verified_round_not_each_action():
+    """Actual source-aligned integration; run on checked-out AIDM package."""
+    from fastapi.testclient import TestClient
+    from aidm.combat.test.test_combat_session import make_app, start, act, log, WIN_FACES
+
+    specialist, runtime = fake_agent("A cautious clash ends with an orc falling.")
+    app, service, sources = make_app(faces=WIN_FACES, policy=specialist)
+    with TestClient(app) as client:
+        initial = start(client)["combat"]
+        assert initial["intent_mode"] == "LIVE_LLM"
+        assert runtime.calls == []  # START is not a completed round.
+        first = act(client, initial, "HOLD", action_id="specialist-first")
+        assert first["status"] == "NEEDS_PLAYER_INPUT"
+        assert runtime.calls == []  # Alho's action alone is not a round.
+        second = act(client, first["combat"], "HOLD", action_id="specialist-second")
+        assert second["status"] == "NEEDS_PLAYER_INPUT"
+        assert "Narrative (non-authoritative)" in second["message"]
+        assert len(runtime.calls) == 1
+        data = json.loads(runtime.calls[0][0])
+        assert data["task"] == "NARRATE"
+        assert any("Round" in e for e in data["verified_public_events"])
+        # Read-only UI recovery must not invoke the model a second time.
+        log(client, second["combat"])
+        assert len(runtime.calls) == 1
+        assert sources[0].cursor == 8  # R1 init+Evro hit+two orc misses+R2 init
