@@ -1,0 +1,333 @@
+/*
+===============================================================================
+FILE MANIFEST
+===============================================================================
+File Name       : MonsterTestCase_Mentzer_Basic_Kobold_Insert.sql
+Repository Path : Database/tables/inserts/MonsterTestCase_Mentzer_Basic_Kobold_Insert.sql
+Project         : Golden Braid / AIDM
+Purpose         : 18 case-level acceptance specifications across KOB-T001/T002.
+Database        : PEQUOD DnD.[Test].[MonsterTestCase]
+Version         : 0.1.0 — SPECIFIED, NOT EXECUTED
+Created         : 2026-11-21
+Dependencies    : Database/database/Test.sql, MonsterTestScenario.sql,
+                  MonsterTestCase.sql, Kobold scenario insert.
+Notes           : One row per test; TestScenarioCode/TestCaseCode PK;
+                  no UAT or pytest runs implied. Surprise, infravision,
+                  gnome hostility, parley are ENCOUNTER scope, not Combat.
+                  B1 selects Kobold species only; test counts/HP are synthetic.
+                  Rerunnable insert does not overwrite prior definitions.
+===============================================================================
+*/
+USE [DnD];
+GO
+IF OBJECT_ID(N'Test.MonsterTestCase',N'U') IS NULL
+    THROW 56640,'Test.MonsterTestCase missing. Run table creation first.',1;
+IF NOT EXISTS (SELECT 1 FROM [Test].[MonsterTestScenario]
+               WHERE [ScenarioCode]=N'KOB-T001')
+    OR NOT EXISTS (SELECT 1 FROM [Test].[MonsterTestScenario]
+               WHERE [ScenarioCode]=N'KOB-T002')
+    THROW 56641,'Kobold scenario rows missing. Run scenario seed first.',1;
+GO
+SET XACT_ABORT ON;
+GO
+BEGIN TRY
+    BEGIN TRAN;
+    DECLARE @Seed TABLE
+    (
+        [ScenarioCode] NVARCHAR(80) NOT NULL ,
+        [TestCaseCode] NVARCHAR(80) NOT NULL ,
+        [SequenceNo] INT NOT NULL ,
+        [TestName] NVARCHAR(180) NOT NULL ,
+        [TestPhase] NVARCHAR(40) NOT NULL ,
+        [TestStatus] NVARCHAR(20) NOT NULL ,
+        [TestRevision] INT NOT NULL ,
+        [GivenText] NVARCHAR(MAX) NOT NULL ,
+        [ExpectedText] NVARCHAR(MAX) NOT NULL ,
+        [DiceFixtureJson] NVARCHAR(MAX) NULL ,
+        [AdditionalDataJson] NVARCHAR(MAX) NULL ,
+        [LinkedStoryRef] NVARCHAR(80) NULL ,
+        [AutomatedTestRef] NVARCHAR(500) NULL ,
+        [Notes] NVARCHAR(MAX) NULL,
+        PRIMARY KEY ([ScenarioCode],[TestCaseCode]),
+        UNIQUE ([ScenarioCode],[SequenceNo])
+    );
+    INSERT INTO @Seed
+    ([ScenarioCode], [TestCaseCode], [SequenceNo], [TestName], [TestPhase], [TestStatus], [TestRevision], [GivenText], [ExpectedText], [DiceFixtureJson], [AdditionalDataJson], [LinkedStoryRef], [AutomatedTestRef], [Notes])
+    VALUES
+    (N'KOB-T001',
+     N'KOB-C01',
+     1,
+     N'Weapon damage minus one, not Hit',
+     N'COMBAT',
+     N'Specified',
+     1,
+     N'KOB-A4 uses fixture short sword with d6 damage 4 and hits; attack d20=15.',
+     N'Normal up-to-1-HD Hit profile; no -1 to the d20 Hit total; successful damage 4-1=3, one attack only.',
+     N'{"attack_d20":15,"damage_d6":4}',
+     NULL,
+     N'AIDM-DES-001.7',
+     NULL,
+     NULL),
+    (N'KOB-T001',
+     N'KOB-C02',
+     2,
+     N'Minimum one HP after damaging hit',
+     N'COMBAT',
+     N'Specified',
+     1,
+     N'Same weapon successfully hits; damage d6=1.',
+     N'The approved generic minimum rule floors damage at 1 HP after Kobold -1; do not produce 0 or negative damage.',
+     N'{"damage_d6":1}',
+     NULL,
+     N'AIDM-DES-001.7',
+     NULL,
+     NULL),
+    (N'KOB-T001',
+     N'KOB-C03',
+     3,
+     N'Miss causes no damage roll',
+     N'COMBAT',
+     N'Specified',
+     1,
+     N'Kobold attack is a miss, regardless of equipped weapon.',
+     N'No HP damage or weapon damage roll consumed; damage modifier cannot create a hit.',
+     N'{"attack_d20":2}',
+     NULL,
+     N'AIDM-DES-001.7',
+     NULL,
+     NULL),
+    (N'KOB-T001',
+     N'KOB-C04',
+     4,
+     N'HP fixed from half-HD fixture',
+     N'COMBAT',
+     N'Specified',
+     1,
+     N'Encounter has eight individual 1/2-HD Kobolds with supplied HP [2,4,3,1,4,2,3,2].',
+     N'Combat uses exactly these actor HP without new HP rolls or B1 sourced values; each actor remains separate.',
+     NULL,
+     N'{"hp":[2,4,3,1,4,2,3,2]}',
+     N'AIDM-DES-001.7',
+     NULL,
+     NULL),
+    (N'KOB-T001',
+     N'KOB-C05',
+     5,
+     N'Damage penalty applies to different weapons',
+     N'COMBAT',
+     N'Specified',
+     1,
+     N'Fixture bow hit uses d6=5, short sword hit uses d6=2.',
+     N'Apply the source -1 damage to each successful weapon attack as applicable: 4 and 1 HP respectively; never subtract from Hit or missile range.',
+     N'{"bow_damage_d6":5,"sword_damage_d6":2}',
+     NULL,
+     N'AIDM-DES-001.7',
+     NULL,
+     NULL),
+    (N'KOB-T001',
+     N'KOB-E01',
+     6,
+     N'Ordinary surprise despite ambush preference',
+     N'ENCOUNTER',
+     N'Specified',
+     1,
+     N'Kobolds await behind rubble; party d6=1, Kobolds d6=4; each side normal surprise threshold 1-2.',
+     N'Party surprised and Kobolds not; Kobolds may act in initial surprise round, party cannot; no initiative for that round, normal initiative later; no fabricated 1-4 Kobold special threshold.',
+     N'{"party_d6":1,"kobold_side_d6":4}',
+     N'{"surprised_party":true,"surprised_kobolds":false,"threshold":[1,2]}',
+     N'AIDM-DES-001.7',
+     NULL,
+     NULL),
+    (N'KOB-T001',
+     N'KOB-E02',
+     7,
+     N'Tactical ambush is not mechanical bonus',
+     N'ENCOUNTER',
+     N'Specified',
+     1,
+     N'Environment permits hiding; Kobolds prefer ambush, and LLM narrates it.',
+     N'Encounter may choose hiding/approach and normal surprise, but may not invent a +Hit, extra attack, or exceptional surprise rule on species prose alone.',
+     NULL,
+     NULL,
+     N'AIDM-DES-001.7',
+     NULL,
+     NULL),
+    (N'KOB-T001',
+     N'KOB-E03',
+     8,
+     N'Infravision scene awareness',
+     N'ENCOUNTER',
+     N'Specified',
+     1,
+     N'Kobold has 90 ft infravision in dark environment.',
+     N'Pass relevant visibility/perception to Encounter/Geometry; no unsourced numerical Hit or damage bonus solely because of infravision.',
+     NULL,
+     NULL,
+     N'AIDM-DES-001.7',
+     NULL,
+     NULL),
+    (N'KOB-T001',
+     N'KOB-E04',
+     9,
+     N'Player parley and stand-off permitted',
+     N'ENCOUNTER',
+     N'Specified',
+     1,
+     N'Party offers to speak or holds at a distance, despite Kobolds'' hostility.',
+     N'Encounter agent considers threats and negotiation as actions; does not force deterministic attack purely because Kobolds are described as evil or ambushers.',
+     NULL,
+     NULL,
+     N'AIDM-DES-001.7',
+     NULL,
+     NULL),
+    (N'KOB-T002',
+     N'KOB-C06',
+     1,
+     N'Chieftain 2-HD attack table',
+     N'COMBAT',
+     N'Specified',
+     1,
+     N'KOB-CH has 9 HP and a single equipped short sword; one deterministic Hit roll.',
+     N'Use 2-HD monster attack row for chieftain, not up-to-1-HD; no second attack or invented Hit bonus.',
+     N'{"attack_d20":12}',
+     NULL,
+     N'AIDM-DES-001.7',
+     NULL,
+     NULL),
+    (N'KOB-T002',
+     N'KOB-C07',
+     2,
+     N'Bodyguard 1+1-HD attack table',
+     N'COMBAT',
+     N'Specified',
+     1,
+     N'KOB-BG1/BG2/BG3 are three individuals with 6 HP each.',
+     N'Each bodyguard attacks on 1+1-HD row; not chieftain''s 2-HD row or ordinary up-to-1-HD row; one weapon attack apiece.',
+     NULL,
+     NULL,
+     N'AIDM-DES-001.7',
+     NULL,
+     NULL),
+    (N'KOB-T002',
+     N'KOB-C08',
+     3,
+     N'Lair actor HP and equipment separation',
+     N'COMBAT',
+     N'Specified',
+     1,
+     N'Initial roster KOB-CH=9; bodyguards 6/6/6; six ordinary HP 2,1,4,3,2,1.',
+     N'All ten actors keep explicit distinct IDs, source roles, attack profiles and HP; no per-combat reroll; parent Kobold HD stays 1/2.',
+     NULL,
+     N'{"chieftain_hp":9,"bodyguards_hp":[6,6,6],"ordinary_hp":[2,1,4,3,2,1]}',
+     N'AIDM-DES-001.7',
+     NULL,
+     NULL),
+    (N'KOB-T002',
+     N'KOB-C09',
+     4,
+     N'Morale eight with living chieftain present',
+     N'COMBAT',
+     N'Specified',
+     1,
+     N'KOB-CH alive and with this group, next normally scheduled group morale check 2d6=7.',
+     N'Eligible accompanying Kobolds have Morale 8 and pass on 7; no arbitrary +2 bonus added to raw morale dice.',
+     N'{"morale_2d6":[3,4]}',
+     N'{"chieftain_alive":true,"with_group":true,"morale":8}',
+     N'AIDM-DES-001.7',
+     NULL,
+     NULL),
+    (N'KOB-T002',
+     N'KOB-C10',
+     5,
+     N'Morale returns to six after chieftain death',
+     N'COMBAT',
+     N'Specified',
+     1,
+     N'KOB-CH dead, survivors still active; next normally scheduled morale check 2d6=7.',
+     N'Morale base 6 is restored; 7 fails vs 6; death alone does NOT generate additional unscheduled morale check.',
+     N'{"morale_2d6":[3,4]}',
+     N'{"chieftain_alive":false,"morale":6}',
+     N'AIDM-DES-001.7',
+     NULL,
+     NULL),
+    (N'KOB-T002',
+     N'KOB-C11',
+     6,
+     N'Leadership bonus requires actual presence',
+     N'COMBAT',
+     N'Specified',
+     1,
+     N'KOB-CH is alive elsewhere but explicitly not WITH the tested Kobold actors.',
+     N'Those actors use Morale 6, not 8, at a legitimate morale check; status follows actual actor presence, not a species-wide flag.',
+     NULL,
+     N'{"chieftain_alive":true,"with_group":false,"morale":6}',
+     N'AIDM-DES-001.7',
+     NULL,
+     NULL),
+    (N'KOB-T002',
+     N'KOB-E05',
+     7,
+     N'Conditional gnome hostility and negotiation',
+     N'ENCOUNTER',
+     N'Specified',
+     1,
+     N'A verified gnome opponent is present (separate synthetic branch); Kobolds detect their species.',
+     N'Source-based hatred informs hostile reaction/attack intent; no automatically granted numeric attack/initiative bonus and no denial of player parley/retreat or standoff requests.',
+     NULL,
+     NULL,
+     N'AIDM-DES-001.7',
+     NULL,
+     NULL),
+    (N'KOB-T002',
+     N'KOB-E06',
+     8,
+     N'Lair composition and count handled by Encounter',
+     N'ENCOUNTER',
+     N'Specified',
+     1,
+     N'Synthetic lair fixture explicitly selects ten Kobolds: one 9HP chieftain, 3 bodyguards from 1d6=3, six ordinary.',
+     N'Encounter passes roster exactly once to Combat, count ten fits 6-60 lair range, all role/HP profiles correct; no fabricated official count roll or separate chieftain-species row.',
+     N'{"bodyguards_1d6":3}',
+     N'{"count_total":10,"chieftain":1,"bodyguards":3,"ordinary":6}',
+     N'AIDM-DES-001.7',
+     NULL,
+     NULL),
+    (N'KOB-T002',
+     N'KOB-C12',
+     9,
+     N'Damage penalty applies across Kobold roles',
+     N'COMBAT',
+     N'Specified',
+     1,
+     N'Chieftain/bodyguard/ordinary each successfully hit using a short sword with d6=4.',
+     N'Use individual attack table by role, but generic Kobold weapon damage -1 unless a specific source overlay says otherwise; 3 HP damage each.',
+     N'{"damage_d6":4}',
+     NULL,
+     N'AIDM-DES-001.7',
+     NULL,
+     NULL);
+
+    INSERT INTO [Test].[MonsterTestCase]
+    ([ScenarioCode], [TestCaseCode], [SequenceNo], [TestName], [TestPhase], [TestStatus], [TestRevision], [GivenText], [ExpectedText], [DiceFixtureJson], [AdditionalDataJson], [LinkedStoryRef], [AutomatedTestRef], [Notes])
+    SELECT s.[ScenarioCode], s.[TestCaseCode], s.[SequenceNo], s.[TestName], s.[TestPhase], s.[TestStatus], s.[TestRevision], s.[GivenText], s.[ExpectedText], s.[DiceFixtureJson], s.[AdditionalDataJson], s.[LinkedStoryRef], s.[AutomatedTestRef], s.[Notes]
+    FROM @Seed AS s
+    WHERE NOT EXISTS
+    (
+        SELECT 1 FROM [Test].[MonsterTestCase] AS t WITH (UPDLOCK,HOLDLOCK)
+        WHERE t.[ScenarioCode]=s.[ScenarioCode]
+          AND t.[TestCaseCode]=s.[TestCaseCode]
+    );
+    DECLARE @Inserted INT=@@ROWCOUNT;
+    COMMIT;
+    PRINT CONCAT(N'Inserted ',@Inserted,N' new Kobold test cases; no executions/UAT.');
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT>0 ROLLBACK;
+    THROW;
+END CATCH;
+GO
+SELECT [ScenarioCode],[TestCaseCode],[SequenceNo],[TestName],[TestPhase],[TestStatus]
+FROM [Test].[MonsterTestCase]
+WHERE [ScenarioCode] IN (N'KOB-T001',N'KOB-T002')
+ORDER BY [ScenarioCode],[SequenceNo];
+GO

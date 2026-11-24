@@ -2,11 +2,41 @@
 
 ![Adventuring party confronting stirges in a purple-lit cavern](assets/images/expedition_13_B1_partyFacesStirgesInThePurpleCorridor.png)
 
-AIDM is the AI Dungeon Master project part of the **The Golden Braid**, Eric Kasper's personal journey through Agentic Engineering. The planned application combines a single player-facing conversational LLM Dungeon Master with Python orchestrators and authoritative deterministic services. It targets **1983 Mentzer Basic D&D** and explicit approved house rules, without inventing additional game mechanics.
+AIDM is an agentic AI engineering project within **The Golden Braid**, Eric Kasper's personal journey through Agentic Engineering. It combines a browser-based conversational Dungeon Master, a model-agnostic Python agent framework, LLM-assisted orchestration, and deterministic rules-verified game engines. Initial prototypes adapt **1983 Mentzer Basic D&D** and explicit approved house rules. The application is developed through an AI-assisted, multi-role engineering workflow using GitHub-based DevOps, automated regression testing, structured observability, and independent human acceptance testing.
 
-The architectural direction includes a persistent runtime, browser interface, conversational DM, and orchestrators for adventure, expedition, character creation, geometry, rules, bookkeeping, encounters, combat, and cartography. Rules, dice, geometry and game-state changes are validated by tools and services—not made authoritative by LLM narration. Framework selection remains open.
+## Mission
 
-This repository is an evolving **engineering foundation**, not yet a playable game. A local Meta Service and mocked player-turn HTTP demonstration exist, but there is no real DM, combat execution, authoritative game state, CI or controlled release publication.
+AIDM aims to bring the openness of an old-school tabletop campaign to a computer roleplaying game. Traditional deterministic-only games tend to be limited to interactions and paths authored in advance; AI can make play responsive to unexpected choices and let the story evolve at the table. AI does not replace the rules engine: it helps interpret intent, narrate and coordinate, while deterministic, ruleset-aware services resolve mechanics and authoritative game state.
+
+## Status
+
+This repository is an evolving **engineering foundation**, not yet a complete playable game. It includes a local Meta Service, a mocked player-turn demonstration, a thin DM gateway, a working deterministic combat prototype and a populated reference database of monsters, spells, weapons and other game content. The full multi-agent DM and the dungeon-, player- and artwork-generation workflows described above are not yet complete.
+
+## How AI is/will be used
+
+- **Dungeon Master:** The DM narrates adventures and expeditions, coordinates specialist agents such as Combat, Encounter, Bookkeeper, Timekeeper, Referee and NPC agents, and adapts to sandbox exploration. Deterministic services remain authoritative for rules such as combat algorithm and game state.
+- **Rules and narrative:** Select a gameplay ruleset and add explicit house rules. For example, Mentzer Basic can govern gameplay while 5e-inspired material adds descriptive color without complicating the gameplay.
+- **Dungeon builder:** Offer three modes: upload a PDF module, generate a dungeon with AI assistance, or generate one entirely with AI. The two generation modes are intended to use a pretrained `aidm-x.x` model.
+- **Player builder:** Help create characters and generate or assist with their backstories.
+- **Artwork generation:** Create illustrations in selectable styles, such as 1980s fantasy, classic inked dungeon maps, painterly high fantasy and parchment-and-ink.  [Check out the images generated in the pre-run adventure and testing](https://github.com/glade90/aidm/tree/main/assets/images)
+- **Encounters and combat:** AI agents can coordinate ruleset-aware deterministic tools for varied enemies and encounters, supporting large and changing rosters without hand-coding a separate agent for every enemy. Deterministic tools—not AI improvisation—determine legal actions and outcomes.
+- **Application development:** A multi-agent `Braider` team supports development in a workflow inspired by the Maestro AI model: ALEK handles programme management, BON focuses on architecture and UAT, and COSTA, DAVOS and ESTER handle implementation and technical work. See the [Maestro AI capstone paper](https://github.com/glade90/maestro-harvard-capstone/blob/main/paper/MaestroAI-Capstone.pdf).
+
+## Technologies and methodologies
+
+| Area | Technologies and approaches |
+| --- | --- |
+| **Positioning** | **Agentic AI**, **Deterministic AI-Augmented Systems**, and **AI-Assisted Software Engineering** |
+| **AI architecture** | Compound AI system: LLMs handle language and delegation; deterministic, rules-verified components remain authoritative for calculations and state changes. Includes provider-neutral `Braider` abstractions, specialised agent roles, tool delegation, and human-in-the-loop control |
+| **Backend** | Python, FastAPI, Uvicorn, typed interfaces, and dependency injection |
+| **Frontend** | Browser-based HTML and JavaScript conversational interface |
+| **Rules engine** | Deterministic Python, source-grounded rule interpretation, injectable dice, and reproducible simulation fixtures |
+| **Data** | Microsoft SQL Server, versioned rules catalogues, and structured JSON |
+| **Testing** | pytest, pytest-cov, deterministic fixtures, JUnit XML, coverage gates, and independent UAT |
+| **Observability** | Structured logging, correlation IDs, runtime diagnostics, and build identity |
+| **Engineering workflow** | Git, GitHub, persistent developer branches and human-less testing and deployment, pull requests, Scrum-style iterations, and the Maestro AI-inspired roles ALEK (programme management), BON (architecture and UAT), and COSTA, DAVOS and ESTER (implementation and technical work) |
+| **Governance** | Airtable work tracking, OneNote Engineering Standards, documented architecture decisions, and agent-evaluation criteria |
+| **Future capabilities** | CrewAI integration, RAG-based retrieval, durable event-sourced game state, and more autonomous multi-agent orchestration are roadmap areas, not claims about the current implementation |
 
 ## Branch workflow
 
@@ -94,6 +124,12 @@ python -m uvicorn aidm.web.app:create_chat_app --factory --host 127.0.0.1 --port
 ```
 
 Open **http://127.0.0.1:8000/chat** and submit `I swing my sword at the orc.`. The response explicitly says **Simulation only**: no real combat, die rolls, damage or hit-point changes occur. The browser uses only `POST /api/turn`, maintains ephemeral session/correlation IDs, renders text safely and prevents duplicate submissions. The page is served from the **same FastAPI app**, with no new game endpoint, third-party frontend framework, API key or separate backend. The scripted DM accepts this period-ending UAT phrase without rewriting the original words. See [HTML Chat implementation, tests and BON UAT](docs/HTML_CHAT.md). This is Functional work; human browser UAT is separately required before acceptance.
+
+## Human-driven real combat roundtrip (AIDM-DES-025.2)
+
+**In-development on DAVOS — developer tests and BON UAT still required.** The same browser chat and existing `POST /api/turn` can now connect to COSTA's deterministic source-backed CombatEngine through the DM's typed, in-memory combat-session handler. Run `python -m uvicorn aidm.web.app:create_chat_app --factory --host 127.0.0.1 --port 8000`, open **http://127.0.0.1:8000/chat**, click **Start 3 vs 3 combat** and follow Alho/Sho's human decision prompts. Evro and the visible orcs take conservative automatic intentions, with all combat legality/dice/modifiers/HP/terminal facts resolved exclusively by Python. Read the ordered player-safe combat log, including real raw dice/modifiers and terminal party HP. Earlier message-only synthetic replies still work independently and are explicitly labelled *simulated*.
+
+The new optional `TurnRequest.combat` contract supports `START`, `ACTION` and read-only `VIEW_LOG` using the **existing** Meta endpoint, with session isolation, decision-token/version/action-ID replay guards and no direct browser-to-Combat API. The controller is encounter-local and loses its state on server restart (not the future Bookkeeper). Optional **explicitly enabled** live LLM interpretation/narration is separate from deterministic rules/HP; the default path needs no paid model or provider key. See [Human combat integration, developer checks and BON UAT](docs/HUMAN_COMBAT_ROUNDTRIP.md). BON will conduct independent integrated DES-001.2 + DES-025.2 Functional UAT in Sprint 2 Iteration 2.4, **not** Sprint 2.END (release only).
 
 ## Raw collectible dice (AIDM-DES-005.2)
 

@@ -50,7 +50,8 @@ class Settings:
     get_secret(name) only in its protected provider adapter.
     """
 
-    __slots__ = ("mode", "debug", "log_level", "request_timeout_seconds", "_secrets")
+    __slots__ = ("mode", "debug", "log_level", "request_timeout_seconds",
+                 "live_llm", "llm_model", "_secrets")
 
     def __init__(
         self,
@@ -60,11 +61,15 @@ class Settings:
         log_level: LogLevel,
         request_timeout_seconds: float,
         secrets: Mapping[str, str],
+        live_llm: bool = False,
+        llm_model: str | None = None,
     ) -> None:
         self.mode = mode
         self.debug = debug
         self.log_level = log_level
         self.request_timeout_seconds = request_timeout_seconds
+        self.live_llm = live_llm
+        self.llm_model = llm_model
         self._secrets = dict(secrets)
 
     def get_secret(self, key: str) -> str | None:
@@ -191,6 +196,12 @@ def load_config(
     if not math.isfinite(timeout) or timeout <= 0:
         raise ConfigError("AIDM_REQUEST_TIMEOUT_SECONDS") from None
 
+    # Live LLM configuration is non-secret but must use the same merged
+    # development .env / process-environment semantics as all other settings.
+    # Defaults stay OFFLINE, and .env is ignored entirely outside development.
+    live_llm = _bool(effective.get("AIDM_LIVE_LLM", "false"), "AIDM_LIVE_LLM")
+    llm_model = effective.get("AIDM_LLM_MODEL", "").strip() or None
+
     requested = _valid_names(optional_secrets)
     required = _valid_names(required_secrets)
     secrets = {}
@@ -207,4 +218,6 @@ def load_config(
         log_level=level,  # type: ignore[arg-type]  # checked against _LEVELS
         request_timeout_seconds=timeout,
         secrets=secrets,
+        live_llm=live_llm,
+        llm_model=llm_model,
     )

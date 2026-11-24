@@ -7,6 +7,7 @@ Usage: dm = DungeonMasterAgent(runtime=fake, model_targets=targets,
        result = dm.handle(player_turn_request)
 Change Log: 2026-11-20 DAVOS — AIDM-DES-015.2 initial non-LLM gateway.
             2026-11-20 DAVOS — AIDM-DES-014.1 accept the approved period fixture.
+            2026-11-20 DAVOS — AIDM-DES-025.2 optional typed combat delegation.
 
 The DM inherits programme-wide Braider but deliberately never calls invoke().
 Real DM intent selection, narration, context memory and game state are deferred.
@@ -43,6 +44,7 @@ class DungeonMasterAgent(Braider):
         model_targets: Mapping[ModelChoice, ModelTarget],
         combat_handler: Callable[[InternalRequest], InternalResult] | None,
         approved_encounter_id: str | None,
+        combat_session_handler: Callable[[InternalRequest], InternalResult] | None = None,
         model_choice: ModelChoice = ModelChoice.BALANCED,
     ) -> None:
         super().__init__(
@@ -53,6 +55,7 @@ class DungeonMasterAgent(Braider):
             allowed_context=frozenset(),
         )
         self._combat_handler = combat_handler
+        self._combat_session_handler = combat_session_handler
         self._approved_encounter_id = approved_encounter_id
 
     def __call__(self, request: InternalRequest) -> InternalResult:
@@ -68,6 +71,43 @@ class DungeonMasterAgent(Braider):
         if request.is_mutation:
             return safe_failure(
                 request, ErrorCode.UNSUPPORTED_RULE, status=ResultStatus.BLOCKED,
+            )
+
+        # DES-025.2: typed human-driven combat is a separate trusted handler.
+        # Legacy DES-015.2 scripted sentence remains backwards compatible.
+        combat = request.payload.get("combat")
+        if combat is not None:
+            if not isinstance(combat, Mapping):
+                return safe_failure(
+                    request, ErrorCode.INVALID_INPUT, status=ResultStatus.NEEDS_PLAYER_INPUT,
+                )
+            if not callable(self._combat_session_handler):
+                return safe_failure(request, ErrorCode.DEPENDENCY_UNAVAILABLE)
+            child = make_child_request(
+                request, caller="DM", capability="combat",
+                operation="combat_turn",
+                payload={
+                    "message": request.payload.get("message", ""),
+                    "combat": dict(combat),
+                },
+                knowledge_scope=None,
+            )
+            outcome = safe_call(
+                child, self._combat_session_handler, supported_operations=("combat_turn",),
+            )
+            # This is encounter-local state, not a Bookkeeper CommittedEffects
+            # receipt. It is explicitly forbidden to manufacture one here.
+            if outcome.committed_effects is not None:
+                return safe_failure(request, ErrorCode.INTERNAL_ERROR)
+            data = {}
+            view = outcome.data.get("combat_view")
+            if isinstance(view, Mapping):
+                data = {"combat_view": dict(view)}
+            return make_result(
+                request, outcome.status,
+                safe_summary=outcome.safe_summary,
+                error_code=outcome.error.code if outcome.error else None,
+                data=data,
             )
 
         player_text = request.payload.get("message")
