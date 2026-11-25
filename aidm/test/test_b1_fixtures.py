@@ -154,7 +154,7 @@ def test_developer_cli_fails_closed_on_outdated_seed_and_can_regenerate(tmp_path
 
 
 def test_b1_source_candidates_cannot_be_started_by_original_selector_yet():
-    html = (MANIFEST.parents[1] / "aidm" / "web" / "static" / "index.html").read_text(
+    html = (MANIFEST.parents[2] / "aidm" / "web" / "static" / "index.html").read_text(
         encoding="utf-8"
     )
     for entry in read_candidates():
