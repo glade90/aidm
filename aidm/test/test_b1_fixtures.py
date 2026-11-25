@@ -159,3 +159,78 @@ def test_b1_source_candidates_cannot_be_started_by_original_selector_yet():
     )
     for entry in read_candidates():
         assert f'<option value="{entry.fixture_id}" disabled>' in html
+
+
+
+def test_five_source_entries_integrate_with_normalized_provider_but_never_start():
+    """Offline row-provider proof: source candidates remain Specified/Blocked."""
+    from aidm.catalogue import (
+        MonsterTestScenarios, NotPlayable, build_test_handoff,
+    )
+    for entry in read_candidates():
+        parent = {
+            "ScenarioCode": entry.scenario_code,
+            "ScenarioName": entry.label,
+            "RulesetCode": "MentzerBECMI",
+            "PrimaryMonsterCode": entry.species,
+            "FixtureRevision": 1,
+            "ScenarioStatus": "Specified",
+            "ReadyForExecution": 0,
+            "OriginReference": entry.source_ref,
+            "MonsterCount": entry.count_max,
+            "PartyRosterJson": json.dumps([
+                {"actor_id": "alho", "hp_start": 8},
+                {"actor_id": "evro", "hp_start": 8},
+                {"actor_id": "sho-rembo", "hp_start": 9},
+            ]),
+            "MonsterRosterJson": json.dumps(entry.roster()),
+            "CountRollJson": json.dumps({
+                "b1_count_min": entry.count_min,
+                "b1_count_max": entry.count_max,
+                "test_selection": entry.count_max,
+            }),
+            "SurpriseJson": None,
+            "SceneFactsJson": json.dumps({
+                "bon_source_approved": False, "actual_room_assignment": None,
+                "species_record_date": None, "verified_mechanics": False,
+            }),
+            "ExpectedHandoffJson": None,
+            "IllustrationPath": None,
+            "Notes": "B1 source draft only",
+        }
+        child = {
+            "ScenarioCode": entry.scenario_code,
+            "TestCaseCode": f"{entry.source_id}-HANDOFF",
+            "SequenceNo": 1,
+            "TestName": "Blocked roster",
+            "TestPhase": "COMBAT_HANDOFF",
+            "TestStatus": "Blocked",
+            "TestRevision": 1,
+            "GivenText": "B1 source not verified",
+            "ExpectedText": "Combat does not start",
+            "DiceFixtureJson": None,
+            "AdditionalDataJson": None,
+            "LinkedStoryRef": "AIDM-DES-001.7.12.1",
+            "AutomatedTestRef": None,
+            "Notes": None,
+        }
+        queries = []
+        def fake(sql, args):
+            queries.append((sql, args))
+            assert args == (entry.scenario_code,)
+            if "[Test].[MonsterTestScenario]" in sql:
+                return [parent]
+            if "[Test].[MonsterTestCase]" in sql:
+                return [child]
+            raise AssertionError("No approved Monster data access for blocked entry")
+        repo = MonsterTestScenarios(fake)
+        with pytest.raises(NotPlayable):
+            repo.resolve(entry.scenario_code)
+        preview = repo.resolve(entry.scenario_code, include_unready_test_only=True)
+        assert preview.code == entry.scenario_code
+        assert preview.ready is False and preview.status == "Specified"
+        assert preview.monster_count == len(entry.roster())
+        assert len(preview.cases) == 1 and preview.cases[0].status == "Blocked"
+        with pytest.raises(NotPlayable):
+            build_test_handoff(preview, None, mechanics_verified_ref="verified.rules.v1")
+        assert not any("[Rules].[Monster]" in sql for sql, _ in queries)
