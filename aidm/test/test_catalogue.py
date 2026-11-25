@@ -329,7 +329,7 @@ def test_two_rosters_distinct_hp_same_version_and_no_combat_or_db_dependency():
     assert x.actors[0].source_version == y.actors[0].source_version
     assert x.sources[0].identity == y.sources[0].identity
     assert "Daylight" in x.sources[0].special_attacks_features
-    assert "negotiate" in x.sources[0].special_encounter_features
+    assert "negotiate" not in repr(x.sources[0])  # Encounter-only guidance never reaches Combat.
     assert x.origin_reference.startswith("Synthetic test")
     assert not hasattr(x, "combat_engine")
     with pytest.raises(FrozenInstanceError):
@@ -348,3 +348,20 @@ def test_public_asset_projection_hide_secrets_until_approved_and_revealed():
     }
     assert "Daylight" not in repr(public)
     assert "SourceReference" not in repr(public)
+
+
+
+def test_zero_movement_is_valid_sql_metadata_and_not_imputed():
+    q = FakeQuery(monsters=[monster_row(MovementTurnFeet=Decimal("0"),
+                                      MovementRoundFeet=Decimal("0"))])
+    snap = MonsterCatalogue(q).resolve("MentzerBECMI", "ORC")
+    assert snap.movement_turn_feet == snap.movement_round_feet == 0
+
+
+def test_hidden_asset_paths_cannot_escape_declared_static_roots():
+    q = FakeQuery(monsters=[monster_row(IllustrationPath="../../secret.txt",
+                                       MapIconPath="C:/Users/private/file.png")])
+    snap = MonsterCatalogue(q).resolve("MentzerBECMI", "ORC")
+    assert public_monster_asset(snap, revealed=True) == {
+        "name": "Orc", "illustration_path": "", "map_icon_path": "",
+    }
