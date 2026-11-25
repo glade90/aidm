@@ -251,7 +251,7 @@ def _monster(row: Mapping[str, Any]) -> MonsterSnapshot:
         nullable("SaveAs"), optional_int("Morale", 2, 12),
         _number(row["MovementTurnFeet"], "MovementTurnFeet", allow_zero=True) if row["MovementTurnFeet"] is not None else None,
         _number(row["MovementRoundFeet"], "MovementRoundFeet", allow_zero=True) if row["MovementRoundFeet"] is not None else None,
-        nullable("MovementSpecialText"), nullable("Alignment"), optional_int("XPValue"),
+        nullable("MovementSpecialText"), nullable("Alignment"), optional_int("XPValue", 0, 1000000000),
         nullable("NumberAppearingText"), nullable("TreasureType"),
         _text(row["GeneralDescription"], "GeneralDescription", nullable=True) or "",
         _text(row["SpecialAttacksFeatures"], "SpecialAttacksFeatures", nullable=True) or "",
@@ -447,6 +447,19 @@ class ActorSeed:
 
 
 @dataclass(frozen=True, slots=True)
+class CombatMonsterProfile:
+    """Only COMBAT-approved rules are handed off; Encounter guidance stays private."""
+    identity: tuple[str, str, str]
+    armor_class: int
+    hit_dice_text: str
+    attack_pattern: str
+    damage_pattern: str
+    save_as: str
+    morale: int
+    special_attacks_features: str
+
+
+@dataclass(frozen=True, slots=True)
 class CombatRosterHandoff:
     """Self-contained candidate for future Encounter→Combat; no SQL link."""
     scenario_code: str
@@ -455,7 +468,7 @@ class CombatRosterHandoff:
     party_roster_json: str
     scene_facts_json: str
     actors: tuple[ActorSeed, ...]
-    sources: tuple[MonsterSnapshot, ...]
+    sources: tuple[CombatMonsterProfile, ...]
     mechanics_verified_ref: str
 
 
@@ -511,10 +524,17 @@ def build_test_handoff(scenario: TestScenarioDefinition,
         versions[species] = snapshot
     actors = tuple(ActorSeed(ident, species, role, hp, versions[species].identity, equip)
                    for ident, species, role, hp, equip in actor_info)
+    # The Combat handoff must NEVER include GeneralDescription or
+    # SpecialEncounterFeatures. Encounter alone consumes negotiation,
+    # camouflage, ecology and other non-combat guidance from full snapshots.
+    profiles = tuple(CombatMonsterProfile(
+        m.identity, m.armor_class, m.hit_dice_text, m.attack_pattern,
+        m.damage_pattern, m.save_as, m.morale, m.special_attacks_features
+    ) for m in versions.values())
     return CombatRosterHandoff(
         scenario.code, scenario.revision, scenario.origin_reference,
         scenario.party_roster_json, scenario.scene_facts_json,
-        actors, tuple(versions.values()), mechanics_verified_ref,
+        actors, profiles, mechanics_verified_ref,
     )
 
 
