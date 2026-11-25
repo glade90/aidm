@@ -248,10 +248,13 @@ def test_normalized_scenario_and_cases_remain_specification_not_results():
     assert scenario.cases[0].phase == "COMBAT"
     assert not scenario.cases[0].executable
     assert scenario.cases[0].dice_json == '{"attack_d20":12}'
-    assert "[Test].[MonsterTestScenario]" in fake.calls[0][0]
-    assert "[Test].[MonsterTestCase]" in fake.calls[1][0]
-    assert "TestCasesJson" not in fake.calls[0][0]
-    assert "TestCasesJson" not in fake.calls[1][0]
+    # The first (unready) resolution reads only the parent and fails closed.
+    # Explicit inspection reads the parent again, then normalized child cases.
+    # Assert the actual query sequence, not the incorrect assumption that the
+    # second query is already the child query.
+    assert sum("[Test].[MonsterTestScenario]" in sql for sql, _ in fake.calls) == 2
+    assert sum("[Test].[MonsterTestCase]" in sql for sql, _ in fake.calls) == 1
+    assert all("TestCasesJson" not in sql for sql, _ in fake.calls)
     with pytest.raises(NotPlayable):
         build_test_handoff(scenario, MonsterCatalogue(FakeQuery(monsters=[monster_row()])),
                            mechanics_verified_ref="verified.rules.1")
