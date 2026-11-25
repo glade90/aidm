@@ -130,6 +130,7 @@ class _ActiveEncounter:
     encounter_id: str
     lock: RLock
     seen_actions: set[str]
+    last_narrated_seq: int = 0  # once per verified completed round for specialist only
 
 
 class CombatSessionService:
@@ -320,10 +321,29 @@ class CombatSessionService:
             action, target = exact
         else:
             try:
-                action, target = self._policy.propose(
-                    player_text=player_text, actor_id=pending.actor_id,
-                    allowed_targets=pending.allowed_targets,
-                )
+                if callable(getattr(self._policy, "propose_scoped", None)):
+                    # Only trusted public Engine projection enters the specialist;
+                    # request payload cannot amend HP, targets or legal moves.
+                    safe_events, _ = self._public_events(engine, 0)
+                    action, target = self._policy.propose_scoped(
+                        player_text=player_text, actor_id=pending.actor_id,
+                        allowed_targets=pending.allowed_targets,
+                        trusted_context={
+                            "round": pending.round_index,
+                            "state_version": pending.version,
+                            "actor_id": pending.actor_id,
+                            "visible_state": engine.player_view(),
+                            "recent_verified_events": [e["text"] for e in safe_events[-12:]],
+                            "rules_profile_ref": engine.profile.profile_id,
+                            "spatial_graph": "NOT_INJECTED_FIRST_SLICE",
+                        },
+                        trace_id=request.correlation_id,
+                    )
+                else:
+                    action, target = self._policy.propose(
+                        player_text=player_text, actor_id=pending.actor_id,
+                        allowed_targets=pending.allowed_targets,
+                    )
             except Exception:
                 return self._result(request, current, body, error_code=ErrorCode.DEPENDENCY_UNAVAILABLE,
                                     status=ResultStatus.ERROR, read_only=True)
@@ -668,7 +688,31 @@ class CombatSessionService:
                             or (error_code is not None and status is not ResultStatus.ERROR)):
             summary = (summary + "\n\n" if summary else "") + next_prompt["prompt"]
         if not read_only and status in (ResultStatus.NEEDS_PLAYER_INPUT, ResultStatus.COMPLETED):
-            narratable = tuple(e["text"] for e in public_log[-3:])
+            if getattr(self._policy, "narrate_on_round_complete", False):
+                # SPECIALIST path: one narrative after a mechanically complete
+                # round, never one call per human attack or read-only VIEW_LOG.
+                all_public, _ = self._public_events(engine, 0)
+                boundaries = [e for e in all_public if e["seq"] > active.last_narrated_seq
+                              and e["kind"] in ("ROUND_COMPLETED", "ENCOUNTER_TERMINAL")]
+                if boundaries:
+                    boundary = boundaries[-1]
+                    # Deduplicate terminal event if a normal round-close already
+                    # generated a narrative for this round.
+                    active.last_narrated_seq = boundary["seq"]
+                    narratable = tuple(e["text"] for e in all_public
+                                       if e["round"] == boundary["round"]
+                                       and e["seq"] <= boundary["seq"]
+                                       and e["kind"] in (
+                                           "ROUND_STARTED", "SIDE_INITIATIVE",
+                                           "MELEE_RESOLVED", "ACTION_HELD",
+                                           "SIMULTANEOUS_EXCHANGE_COMMITTED",
+                                           "ENCOUNTER_TERMINAL",
+                                       ))
+                else:
+                    narratable = ()
+            else:
+                # Existing DES-025.2 policy retains old per-action behaviour.
+                narratable = tuple(e["text"] for e in public_log[-3:])
             if narratable:
                 try:
                     flavour = self._policy.narrate(verified_events=narratable)
