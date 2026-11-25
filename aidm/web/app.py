@@ -24,6 +24,8 @@ from braider import FakeModelRuntime, ModelChoice, ModelTarget
 from aidm.combat import CombatAgent
 from aidm.combat.session import CombatSessionService, IntentPolicy
 from aidm.combat.live_policy import OpenAIResponsesPolicy
+from aidm.combat import live_policy as _combat_live_policy_module
+from aidm.combat.round_agent import CombatRoundAgent
 from aidm.config import Settings, load_config
 from aidm.dm import DungeonMasterAgent
 from aidm.internal_messages import InternalRequest, InternalResult
@@ -77,7 +79,16 @@ def create_chat_app(
                 model = configured.llm_model
                 if not secret or not model:
                     raise ValueError("Live model requires explicitly configured key and model")
-                intent_policy = OpenAIResponsesPolicy(api_key=secret, model=model)
+                existing_policy = OpenAIResponsesPolicy(api_key=secret, model=model)
+                # DES-004.2: reuse this exact configured provider via Braider's
+                # specialist CombatAgent; no competing DM/Combat LLM parser.
+                # An explicitly monkeypatched/alternate policy in older tests
+                # is still injectable through the pre-existing seam.
+                intent_policy = (
+                    CombatRoundAgent.from_live_policy(existing_policy)
+                    if isinstance(existing_policy, _combat_live_policy_module.OpenAIResponsesPolicy)
+                    else existing_policy
+                )
         service = CombatSessionService(intent_policy=intent_policy)
         combat_session_handler = service.handle
 
