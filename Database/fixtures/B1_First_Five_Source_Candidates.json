@@ -1,0 +1,157 @@
+{
+  "schema": "aidm.b1.first_five.candidates.v1",
+  "story": "AIDM-DES-001.7.12.1",
+  "source_edition": "TSR 9023 B1 In Search of the Unknown, brown-cover/basic printing, printed monster list p.25",
+  "source_policy": "B1 source-entry facts for isolated test fixtures, NOT Mentzer Rules.Monster species authority; verify from owner's edition before approval",
+  "allocation_status": "PROPOSED_BY_DAVOS_PENDING_BON",
+  "record_date_policy": "UNRESOLVED_UNTIL_APPROVED_PEQUOD_RULES_MONSTER_VERSION",
+  "prototype_count_policy": "USE_PRINTED_MAXIMUM_ONLY_AS_DETERMINISTIC_TEST_SELECTION_NOT_MANDATORY_MODULE_STOCKING",
+  "ready_for_execution": false,
+  "entries": [
+    {
+      "source_id": "S12",
+      "fixture_id": "b1.stock.12",
+      "scenario_code": "B1-S12",
+      "species": "GNOLL",
+      "label": "Gnolls",
+      "count_min": 1,
+      "count_max": 4,
+      "source_hp": [
+        13,
+        7,
+        6,
+        3
+      ],
+      "armor_class": 5,
+      "hit_dice": "2",
+      "attacks": 1,
+      "damage": "2-8 or by weapon +1",
+      "movement_turn_feet": 90,
+      "movement_round_feet": 30,
+      "save_as": "F2",
+      "morale": 8,
+      "source_page": 25,
+      "mechanics_questions": [
+        "Gnoll weapon bonus +1 requires verified source-aware interpreter",
+        "Morale and noncombat encounter reaction not yet fully integrated"
+      ]
+    },
+    {
+      "source_id": "S15",
+      "fixture_id": "b1.stock.15",
+      "scenario_code": "B1-S15",
+      "species": "HOBGOBLIN",
+      "label": "Hobgoblins",
+      "count_min": 2,
+      "count_max": 5,
+      "source_hp": [
+        9,
+        8,
+        6,
+        4,
+        3
+      ],
+      "armor_class": 6,
+      "hit_dice": "1+1",
+      "attacks": 1,
+      "damage": "1-8 or by weapon",
+      "movement_turn_feet": 90,
+      "movement_round_feet": 30,
+      "save_as": "F1",
+      "morale": 8,
+      "source_page": 25,
+      "mechanics_questions": [
+        "Morale trigger and possible encounter social/leadership behaviour must be supported"
+      ]
+    },
+    {
+      "source_id": "S16",
+      "fixture_id": "b1.stock.16",
+      "scenario_code": "B1-S16",
+      "species": "GOBLIN",
+      "label": "Goblins",
+      "count_min": 1,
+      "count_max": 8,
+      "source_hp": [
+        7,
+        5,
+        4,
+        3,
+        3,
+        3,
+        2,
+        1
+      ],
+      "armor_class": 6,
+      "hit_dice": "1-1",
+      "attacks": 1,
+      "damage": "1-6 or by weapon",
+      "movement_turn_feet": 90,
+      "movement_round_feet": 30,
+      "save_as": "NM",
+      "morale": 7,
+      "source_page": 25,
+      "mechanics_questions": [
+        "Morale and any required source-verified Goblin conditional rules"
+      ]
+    },
+    {
+      "source_id": "S20",
+      "fixture_id": "b1.stock.20",
+      "scenario_code": "B1-S20",
+      "species": "BANDIT",
+      "label": "Bandits",
+      "count_min": 1,
+      "count_max": 4,
+      "source_hp": [
+        7,
+        5,
+        4,
+        2
+      ],
+      "armor_class": 6,
+      "hit_dice": "1",
+      "attacks": 1,
+      "damage": "1-6 or by weapon",
+      "movement_turn_feet": 90,
+      "movement_round_feet": 30,
+      "save_as": "T1",
+      "morale": 8,
+      "source_page": 25,
+      "mechanics_questions": [
+        "Bandit weapon/loadout and initial encounter reaction are not source-specified",
+        "Morale trigger and NPC handling not yet fully integrated"
+      ]
+    },
+    {
+      "source_id": "S25",
+      "fixture_id": "b1.stock.25",
+      "scenario_code": "B1-S25",
+      "species": "GOBLIN",
+      "label": "Goblins — alternate B1 source entry",
+      "count_min": 1,
+      "count_max": 6,
+      "source_hp": [
+        6,
+        5,
+        5,
+        4,
+        3,
+        2
+      ],
+      "armor_class": 6,
+      "hit_dice": "1-1",
+      "attacks": 1,
+      "damage": "1-6 or by weapon",
+      "movement_turn_feet": 90,
+      "movement_round_feet": 30,
+      "save_as": "NM",
+      "morale": 7,
+      "source_page": 25,
+      "mechanics_questions": [
+        "Distinct source roster/count from S16 must be independently tested",
+        "Morale and required conditional rules not yet fully integrated"
+      ]
+    }
+  ]
+}
