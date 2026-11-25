@@ -98,7 +98,8 @@ def _bit(value: object, label: str) -> bool:
     return bool(value)
 
 
-def _number(value: object, label: str, *, nullable: bool = True) -> Decimal | None:
+def _number(value: object, label: str, *, nullable: bool = True,
+            allow_zero: bool = False) -> Decimal | None:
     if value is None and nullable:
         return None
     if type(value) is bool or not isinstance(value, (Decimal, int, float, str)):
@@ -107,7 +108,7 @@ def _number(value: object, label: str, *, nullable: bool = True) -> Decimal | No
         number = Decimal(str(value))
     except Exception:
         raise CatalogueError(f"Invalid {label}") from None
-    if not number.is_finite() or number <= 0:
+    if not number.is_finite() or number < 0 or (number == 0 and not allow_zero):
         raise CatalogueError(f"Invalid {label}")
     return number
 
@@ -248,8 +249,8 @@ def _monster(row: Mapping[str, Any]) -> MonsterSnapshot:
         nullable("HouseRuleOverlayRefs"), optional_int("ArmorClass", -50, 50),
         nullable("HitDiceText"), nullable("AttackPattern"), nullable("DamagePattern"),
         nullable("SaveAs"), optional_int("Morale", 2, 12),
-        _number(row["MovementTurnFeet"], "MovementTurnFeet") if row["MovementTurnFeet"] is not None else None,
-        _number(row["MovementRoundFeet"], "MovementRoundFeet") if row["MovementRoundFeet"] is not None else None,
+        _number(row["MovementTurnFeet"], "MovementTurnFeet", allow_zero=True) if row["MovementTurnFeet"] is not None else None,
+        _number(row["MovementRoundFeet"], "MovementRoundFeet", allow_zero=True) if row["MovementRoundFeet"] is not None else None,
         nullable("MovementSpecialText"), nullable("Alignment"), optional_int("XPValue"),
         nullable("NumberAppearingText"), nullable("TreasureType"),
         _text(row["GeneralDescription"], "GeneralDescription", nullable=True) or "",
@@ -493,6 +494,8 @@ def build_test_handoff(scenario: TestScenarioDefinition,
             raise NotPlayable("Invalid actor equipment")
         actor_info.append((ident, species, role, hp, equipment))
         keys.append((scenario.ruleset_code, species, None))
+    if scenario.primary_monster_code not in {species for _, species, _, _, _ in actor_info}:
+        raise NotPlayable("Primary species missing from roster")
     for entry in party:
         if not isinstance(entry, dict) or _id(entry.get("actor_id"), "party actor_id") in seen:
             raise NotPlayable("Duplicate or invalid party actor")
@@ -519,5 +522,11 @@ def public_monster_asset(monster: MonsterSnapshot, *, revealed: bool) -> dict[st
     """Small explicitly revealed public projection; never sends source secrets."""
     if not revealed or not monster.active or monster.source_status != "Approved":
         return {}
-    return {"name": monster.monster_name, "illustration_path": monster.illustration_path or "",
-            "map_icon_path": monster.map_icon_path or ""}
+    def safe_asset(value: str | None) -> str:
+        if not value or not re.fullmatch(r"(?:assets|static)/[A-Za-z0-9._/-]+", value):
+            return ""
+        return value if ".." not in value.split("/") else ""
+
+    return {"name": monster.monster_name,
+            "illustration_path": safe_asset(monster.illustration_path),
+            "map_icon_path": safe_asset(monster.map_icon_path)}
