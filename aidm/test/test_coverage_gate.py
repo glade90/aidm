@@ -70,10 +70,15 @@ def fake_suite(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         state.update(covered=covered, valid=valid, exit=pytest_exit, xml=xml,
                      junit=junit)
         state["raise"] = raise_spawn
+        runs_dir = tmp_path / "reports" / "test-runs"
+        before = set(runs_dir.iterdir()) if runs_dir.exists() else set()
         result = runner.main(["--demonstrate-failure"] if demonstrate_failure else [])
-        dirs = sorted((tmp_path / "reports" / "test-runs").iterdir())
-        directory = dirs[-1]
-        # Return the newest run by unique timestamped directory rather than relying on system time.
+        # A timestamp plus random suffix is unique but NOT lexically ordered
+        # when multiple runs share a timestamp (common on Windows CI).
+        # Select the one newly created report, rather than sorting by name.
+        created = set(runs_dir.iterdir()) - before
+        assert len(created) == 1, "Each test invocation must create exactly one report"
+        directory = created.pop()
         manifest = json.loads((directory / "run.json").read_text(encoding="utf-8"))
         return result, manifest, directory
 
