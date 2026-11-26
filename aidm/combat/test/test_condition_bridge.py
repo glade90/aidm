@@ -106,6 +106,8 @@ def test_f02_f03_synthetic_verified_effect_updates_real_pc_and_orc_refs():
     assert b.receipt.status is ConditionStatus.ACTIVE
     assert a.receipt.actor_id == "alho" and b.receipt.actor_id == "orc-01"
     assert a.player_safe_message == "Alho gains POISONED status."
+    assert a.private_original_player_text.startswith("I attempt the effect")
+    assert a.private_source_rule_ref == pc.source_rule_ref
     assert b.player_safe_message == "Orc 1 gains ASLEEP status."
     assert service.get_active("alho").active[0].code == "POISONED"
     assert service.get_active("orc-01").active[0].code == "ASLEEP"
