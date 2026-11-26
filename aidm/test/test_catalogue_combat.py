@@ -233,3 +233,25 @@ def test_original_synthetic_3v3_remains_untouched_and_no_b1_ids_enabled():
     ]
     with pytest.raises(ValueError):
         CombatSessionService(prototype_encounter="SELECT * FROM Rules.Monster")
+
+
+
+def test_preloaded_catalogue_does_not_enable_unreviewed_b1_selector_ids():
+    _, pair, _ = prepared_pair()
+    service = CombatSessionService(prototype_encounter=pair[0][2])
+    app = create_chat_app(
+        settings=load_config(environ={"AIDM_MODE": "test"},
+                             dotenv_path="/nonexistent/sql.env"),
+        logger=FakeLogger(), combat_session_handler=service,
+    )
+    with TestClient(app) as client:
+        blocked = client.post("/api/turn", json={
+            "session_id": "b1-test", "correlation_id": "reject-b1",
+            "combat": {"kind": "START", "fixture_id": "b1.stock.12"},
+        })
+        assert blocked.status_code == 200
+        assert blocked.json()["status"] == "BLOCKED"
+        assert "b1-test" not in service._sessions
+        allowed = start(client, session="b1-test")
+        assert allowed["combat"]["fixture_status"] == "TEST_ONLY"
+        assert allowed["combat"]["fixture_id"] == "owner-canonical-3v3-fixture-v1"
