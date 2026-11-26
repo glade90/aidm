@@ -103,11 +103,15 @@ class RuleEventSource(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class ConditionBridgeResult:
+    """Server-internal receipt. Expose ONLY player_safe_* through DM/Meta."""
+
     receipt: ConditionReceipt
     player_safe_message: str | None
     player_safe_codes: tuple[str, ...]
     source_event_id: str
     correlation_id: str
+    private_original_player_text: str
+    private_source_rule_ref: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,8 +239,9 @@ class CombatConditionBridge:
                     command, fact.instance_id, fact.source_rule_ref))
             message, codes = self._safe_projection(
                 fact.actor_id, fact.condition_code, fact.operation)
-            return ConditionBridgeResult(result, message, codes,
-                                         fact.event_id, proposal.correlation_id)
+            return ConditionBridgeResult(
+                result, message, codes, fact.event_id, proposal.correlation_id,
+                proposal.original_player_text, fact.source_rule_ref)
 
     def on_clock_advance(self, receipt: ClockAdvanceReceipt) -> ConditionExpiryResult:
         """Only canonical receipts from the SAME authoritative clock are trusted."""
