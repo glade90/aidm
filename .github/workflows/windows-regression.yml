@@ -106,13 +106,13 @@ jobs:
           $lines = @(
             "# AIDM remote regression",
             "",
-            "- Tested SHA: `$sha`",
-            "- Expected SHA: `$env:EXPECTED_SHA`",
+            "- Tested SHA: $sha",
+            "- Expected SHA: $env:EXPECTED_SHA",
             "- Git worktree dirty: $dirty",
             "- Focused tests: $env:FOCUSED_OUTCOME",
             "- Canonical Python + coverage gate: $env:PYTHON_OUTCOME",
             "- Node browser tests: $env:NODE_OUTCOME",
-            "- Run: `$env:GITHUB_RUN_ID` (attempt `$env:GITHUB_RUN_ATTEMPT`)"
+            "- Run: $env:GITHUB_RUN_ID (attempt $env:GITHUB_RUN_ATTEMPT)"
           )
           $lines | Out-File -FilePath reports/ci-receipt.md -Encoding utf8
           $lines | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append -Encoding utf8
