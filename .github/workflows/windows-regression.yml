@@ -26,13 +26,13 @@ jobs:
       - name: Checkout exact source
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.target_sha || github.event.pull_request.head.sha }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.target_sha || github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - name: Confirm exact source identity and clean tree
         shell: pwsh
         env:
-          EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.target_sha || github.event.pull_request.head.sha }}
+          EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.target_sha || github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
         run: |
           $sha = (git rev-parse HEAD).Trim()
           Write-Output "Checked out SHA: $sha"
@@ -97,7 +97,7 @@ jobs:
         if: always()
         shell: pwsh
         env:
-          EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.target_sha || github.event.pull_request.head.sha }}
+          EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.target_sha || github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           FOCUSED_OUTCOME: ${{ steps.focused.outcome }}
           PYTHON_OUTCOME: ${{ steps.python.outcome }}
           NODE_OUTCOME: ${{ steps.node.outcome }}
@@ -136,7 +136,7 @@ jobs:
         if: always()
         shell: pwsh
         env:
-          EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.target_sha || github.event.pull_request.head.sha }}
+          EXPECTED_SHA: ${{ github.event_name == 'workflow_dispatch' && inputs.target_sha || github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           FOCUSED_OUTCOME: ${{ steps.focused.outcome }}
           PYTHON_OUTCOME: ${{ steps.python.outcome }}
           NODE_OUTCOME: ${{ steps.node.outcome }}
