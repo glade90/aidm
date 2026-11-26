@@ -15,6 +15,7 @@ from typing import Any
 
 from braider import Braider, ContextItem, ModelChoice, ModelRuntime, ModelTarget
 from .live_policy import OpenAIResponsesPolicy
+from .narration_contract import parse_narration_response
 
 
 _INSTRUCTIONS = (
@@ -26,8 +27,10 @@ _INSTRUCTIONS = (
     "Use NEEDS_CLARIFICATION for genuine ambiguity, UNSUPPORTED_RULE for "
     "unsupported movement, spell, equipment and monster mechanics. "
     "Never assume an unspoken HOLD, invent a target, rule, dice outcome or HP. "
-    "For task=NARRATE return short player-safe prose based ONLY on the supplied "
-    "verified_public_events. Do not invent actions, results, identities, locations, "
+    "For task=NARRATE return EXACTLY one JSON object with a single key narration "
+    "holding short player-safe prose based ONLY on supplied verified_public_events. "
+    "Do not add any other JSON keys, fences, metadata or invented facts. "
+    "Do not invent actions, results, identities, locations, "
     "dialogue or mechanical consequences. You cannot execute anything."
 )
 
@@ -143,4 +146,5 @@ class CombatRoundAgent(Braider):
             return None
         # Only the trusted Engine's player-safe projection may be passed here.
         # The model cannot write effects or replace the authoritative log.
-        return self._call({"task": "NARRATE", "verified_public_events": verified_events})[:500]
+        raw = self._call({"task": "NARRATE", "verified_public_events": verified_events})
+        return parse_narration_response(raw)
