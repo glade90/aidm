@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+import mimetypes
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, RedirectResponse
@@ -107,6 +108,9 @@ def create_chat_app(
     registry.register("dm", dm_handler)
 
     app = create_app(settings=settings, registry=registry, logger=logger)
+    # Windows MIME registries may incorrectly classify ES modules as text/plain.
+    # Browsers require a JavaScript MIME type for .mjs module scripts.
+    mimetypes.add_type("text/javascript", ".mjs", strict=True)
     app.mount("/static", StaticFiles(directory=_STATIC), name="chat-static")
 
     @app.get("/", include_in_schema=False)
