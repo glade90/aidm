@@ -505,9 +505,14 @@ def build_test_handoff(scenario: TestScenarioDefinition,
         equipment = entry.get("weapon")
         if equipment is not None and not isinstance(equipment, str):
             raise NotPlayable("Invalid actor equipment")
-        actor_info.append((ident, species, role, hp, equipment))
-        keys.append((scenario.ruleset_code, species, None))
-    if scenario.primary_monster_code not in {species for _, species, _, _, _ in actor_info}:
+        # An authored optional RecordDate must be honoured, never replaced
+        # by a different active version just because its species matches.
+        pinned_date = entry.get("species_record_date")
+        if pinned_date is not None:
+            pinned_date = _date(pinned_date)
+        actor_info.append((ident, species, role, hp, equipment, pinned_date))
+        keys.append((scenario.ruleset_code, species, pinned_date))
+    if scenario.primary_monster_code not in {species for _, species, _, _, _, _ in actor_info}:
         raise NotPlayable("Primary species missing from roster")
     for entry in party:
         if not isinstance(entry, dict) or _id(entry.get("actor_id"), "party actor_id") in seen:
@@ -517,13 +522,19 @@ def build_test_handoff(scenario: TestScenarioDefinition,
         if type(entry.get("hp_start")) is not int or entry["hp_start"] < 1:
             raise NotPlayable("Missing party HP")
     versions: dict[str, MonsterSnapshot] = {}
-    for _, species, _ in dict.fromkeys(keys):
-        snapshot = catalogue.resolve(scenario.ruleset_code, species)
+    requested_dates: dict[str, set[str | None]] = {}
+    for _, species, record_date in keys:
+        requested_dates.setdefault(species, set()).add(record_date)
+    if any(len(dates) > 1 for dates in requested_dates.values()):
+        raise NotPlayable("Conflicting or partially pinned source version within species")
+    for _, species, record_date in dict.fromkeys(keys):
+        snapshot = catalogue.resolve(scenario.ruleset_code, species,
+                                     record_date=record_date)
         if not snapshot.reference_complete:
             raise NotPlayable("Species rules incomplete")
         versions[species] = snapshot
     actors = tuple(ActorSeed(ident, species, role, hp, versions[species].identity, equip)
-                   for ident, species, role, hp, equip in actor_info)
+                   for ident, species, role, hp, equip, _ in actor_info)
     # The Combat handoff must NEVER include GeneralDescription or
     # SpecialEncounterFeatures. Encounter alone consumes negotiation,
     # camouflage, ecology and other non-combat guidance from full snapshots.
