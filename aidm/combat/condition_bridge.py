@@ -214,7 +214,8 @@ class CombatConditionBridge:
             fact = self._verified_fact(proposal)
             # Duration is CERTIFIED by the trusted source fact, never proposal.
             # Never silently backdate an application relative to GameClock.
-            if fact.applied_at_game_seconds is not None:
+            if (fact.applied_at_game_seconds is not None and
+                    self.conditions.read_action_receipt(proposal.action_id) is None):
                 if fact.applied_at_game_seconds != self._clock.read_clock().elapsed_game_seconds:
                     raise BridgeError(BridgeErrorCode.UNTRUSTED_CLOCK,
                                       "Verified effect timing inconsistent with GameClock")
