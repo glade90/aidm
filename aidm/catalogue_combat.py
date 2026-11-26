@@ -90,6 +90,12 @@ def prepare_prototype_encounter(
                 or not profile.damage_pattern or not profile.save_as
                 or type(profile.morale) is not int):
             _fail("Incomplete pinned monster mechanics")
+        # The current deterministic engine has no generic special-attack
+        # executor. Even a mistaken/overbroad callback must not silently
+        # treat poison, paralysis, leader bonuses or daylight penalties as
+        # vanilla melee. Such sources require the separate rules build.
+        if profile.special_attacks_features.strip():
+            _fail("Unimplemented monster special feature")
         try:
             supported = mechanics_supported(profile)
         except Exception:
@@ -107,6 +113,8 @@ def prepare_prototype_encounter(
         seed = incoming[actor_id]
         if original.origin is not Origin.CREATURE or seed.starting_hp < 1:
             _fail("Invalid creature instance")
+        if seed.role.lower() not in ("ordinary", "standard"):
+            _fail("Monster role modifiers need a source-rules implementation")
         profile = profiles.get(seed.source_version)
         if profile is None or seed.species_code != profile.identity[1]:
             _fail("Creature version does not match source profile")
