@@ -262,3 +262,16 @@ def test_f02_f03_invalid_proposals_fail_without_source_mutations():
         reject_without_mutation(bridge, BridgeErrorCode.INVALID_PROPOSAL,
                                 lambda p=unsafe: bridge.submit(p))
     assert state.get_active("alho").active == ()
+
+
+def test_f05_idempotent_old_condition_action_after_later_clock_version():
+    fact = effect("later-clock-replay", "alho", "POISONED",
+                  applied_at=0, expiry_at=100)
+    bridge, state, clock, auth, _ = setup(fact)
+    original_proposal = proposal(fact)
+    first_receipt = bridge.submit(original_proposal).receipt
+    bridge.on_clock_advance(advance(clock, auth, 1))
+    assert clock.read_clock().elapsed_game_seconds == 10
+    replay_receipt = bridge.submit(original_proposal).receipt
+    assert replay_receipt is first_receipt
+    assert state.get_active("alho").condition_version == 1
