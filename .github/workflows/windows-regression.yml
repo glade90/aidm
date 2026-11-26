@@ -3,6 +3,8 @@
 name: AIDM Windows regression
 
 on:
+  push:
+    branches: [main, costa-ci-windows-regression]
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
   workflow_dispatch:
