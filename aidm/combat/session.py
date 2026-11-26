@@ -28,7 +28,7 @@ from aidm.combat.engine import (
 )
 from aidm.combat.fixtures import canonical_three_vs_three
 from aidm.combat.rules_reference import FLAIL_RULE, RuleProfile
-from aidm.combat.state import Controller
+from aidm.combat.state import Controller, EncounterDefinition
 from aidm.internal_messages import (
     ErrorCode, InternalRequest, InternalResult, ResultStatus, make_result, safe_failure,
 )
