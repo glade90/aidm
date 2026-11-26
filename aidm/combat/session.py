@@ -152,9 +152,15 @@ class CombatSessionService:
         roll_source_factory: Callable[[], RollSource] = SystemRandomSource,
         intent_policy: IntentPolicy | None = None,
         rule_profile_factory: Callable[[], RuleProfile] | None = None,
+        prototype_encounter: EncounterDefinition | None = None,
     ) -> None:
         if not callable(roll_source_factory):
             raise ValueError("Dice source factory must be callable")
+        # Trusted, preconstructed in-memory prototype only. It cannot reach
+        # PEQUOD at runtime and cannot enable any B1 selector ID.
+        if prototype_encounter is not None and not isinstance(prototype_encounter, EncounterDefinition):
+            raise ValueError("Invalid preloaded combat encounter")
+        self._prototype_encounter = prototype_encounter
         self._source_factory = roll_source_factory
         self._policy = intent_policy if intent_policy is not None else ScriptedIntentPolicy()
         declared_mode = getattr(self._policy, "mode", "INJECTED_POLICY")
@@ -207,7 +213,7 @@ class CombatSessionService:
         fixture = canonical_three_vs_three()
         if fixture.fixture_id != fixture_id or fixture.rules_verified:
             raise ValueError("Fixture eligibility contract mismatch")
-        definition = fixture.encounter
+        definition = self._prototype_encounter if self._prototype_encounter is not None else fixture.encounter
         dice = canonical_dice_kit(definition)
         encounter_id = f"enc-{uuid4().hex}"
         definition = replace(definition, encounter_id=encounter_id)
@@ -247,7 +253,9 @@ class CombatSessionService:
                 self._advance(current)
                 return self._result(
                     request, current, body,
-                    message="Combat begins: Alho, Evro and Sho face three visible orcs.",
+                    message=("TEST_ONLY: preloaded, source-pinned combat encounter begins."
+                             if self._prototype_encounter is not None
+                             else "Combat begins: Alho, Evro and Sho face three visible orcs."),
                 )
 
     def _reset(self, request: InternalRequest) -> InternalResult:
@@ -279,8 +287,10 @@ class CombatSessionService:
                     self._advance(fresh)
                     return self._result(
                         request, fresh, body,
-                        message="Combat reset. A fresh 3 vs 3 encounter begins: "
-                                "Alho, Evro and Sho face three visible orcs.",
+                        message=("TEST_ONLY: preloaded source-pinned encounter reset."
+                                 if self._prototype_encounter is not None
+                                 else "Combat reset. A fresh 3 vs 3 encounter begins: "
+                                      "Alho, Evro and Sho face three visible orcs."),
                     )
 
     def _action(self, request: InternalRequest, current: _ActiveEncounter,
@@ -622,7 +632,9 @@ class CombatSessionService:
         view = {
             "encounter_id": active.encounter_id,
             "fixture_id": active.fixture_id,
-            "fixture_label": "Owner-approved synthetic 3 vs 3",
+            "fixture_label": ("TEST_ONLY: preloaded source-pinned synthetic combat"
+                              if self._prototype_encounter is not None
+                              else "Owner-approved synthetic 3 vs 3"),
             "fixture_status": "TEST_ONLY",
             "intent_mode": self._intent_mode,
             "state_version": snap["version"],
