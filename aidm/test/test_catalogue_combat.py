@@ -207,7 +207,20 @@ def test_real_source_specials_are_blocked_until_implemented_and_signed_off():
             replace(handoff, sources=(replace(
                 handoff.sources[0], special_attacks_features="Daylight imposes -1 to hit"),)),
             authored_template=template,
-            mechanics_supported=lambda profile: not profile.special_attacks_features,
+            mechanics_supported=lambda profile: True,
+        )
+
+
+def test_leader_special_role_requires_actual_mechanics_not_generic_hd1():
+    _, pair, template = prepared_pair()
+    _, handoff, _ = pair[0]
+    with pytest.raises(NotPlayable):
+        prepare_prototype_encounter(
+            replace(handoff, actors=(
+                replace(handoff.actors[0], role="leader"), *handoff.actors[1:]
+            )),
+            authored_template=template,
+            mechanics_supported=lambda p: True,
         )
 
 
