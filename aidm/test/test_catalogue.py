@@ -368,3 +368,89 @@ def test_hidden_asset_paths_cannot_escape_declared_static_roots():
     assert public_monster_asset(snap, revealed=True) == {
         "name": "Orc", "illustration_path": "", "map_icon_path": "",
     }
+
+
+@pytest.mark.parametrize("code,ac,hd,attacks,damage,save_as,morale,movement,dimensions", [
+    ("ORC", 6, "1", "1 attack with equipped weapon", "By equipped weapon",
+     "Fighter 1", 8, (120, 40), (5.0, 5.0, 6.0)),
+    ("GIANT_CENTIPEDE", 9, "1/2", "1 bite",
+     "0 HP from bite; save versus Poison on hit",
+     "Normal Man", 7, (60, 20), (1.0, 0.3, 0.2)),
+    ("CARRION_CRAWLER", 7, "3+1*", "8 separate tentacle attacks per round",
+     "0 HP per tentacle; save versus Paralysis on hit",
+     "Fighter 2", 9, (120, 40), (9.0, 3.0, 3.0)),
+    ("GIANT_CRAB_SPIDER", 7, "2*", "1 bite per round",
+     "1d8 HP from bite, plus separate Poison save",
+     "Fighter 1", 7, (120, 40), (5.0, 4.0, 2.0)),
+])
+def test_four_source_checked_pequod_v04_schema_contracts(
+        code, ac, hd, attacks, damage, save_as, morale, movement, dimensions):
+    """Reviewed bonnie Monster_Mentzer_Basic_Four_Species_Insert.sql VALUES.
+
+    Offline fixtures validate exact SOURCE fields but do not claim actual
+    PEQUOD deployment, source approval, special-rule execution or BON UAT.
+    """
+    source = monster_row(
+        code=code, status="SourceChecked", active=0,
+        MonsterName=code.replace("_", " ").title(),
+        ArmorClass=ac, HitDiceText=hd, AttackPattern=attacks, DamagePattern=damage,
+        SaveAs=save_as, Morale=morale,
+        MovementTurnFeet=Decimal(str(movement[0])),
+        MovementRoundFeet=Decimal(str(movement[1])),
+        D1Feet=Decimal(str(dimensions[0])),
+        D2Feet=Decimal(str(dimensions[1])),
+        ZFeet=Decimal(str(dimensions[2])),
+        SpecialAttacksFeatures="Source special feature. Verify before any combat.",
+        SpecialEncounterFeatures="Species behavioural context; not a combat modifier.",
+        SourceReference=f"1983 Mentzer Basic, {code}, source reviewed.",
+    )
+    db = FakeQuery(monsters=[source])
+    catalogue = MonsterCatalogue(db)
+    with pytest.raises(CatalogueError):
+        catalogue.resolve("MentzerBECMI", code)
+    snap = catalogue.resolve("MentzerBECMI", code, source_checked_test_only=True)
+    assert snap.monster_code == code and snap.armor_class == ac
+    assert snap.hit_dice_text == hd and snap.attack_pattern == attacks
+    assert snap.damage_pattern == damage and snap.save_as == save_as
+    assert snap.morale == morale
+    assert (snap.movement_turn_feet, snap.movement_round_feet) == movement
+    assert (float(snap.d1_feet), float(snap.d2_feet), float(snap.z_feet)) == dimensions
+    assert snap.active is False and snap.source_status == "SourceChecked"
+    assert "Source special feature" in snap.special_attacks_features
+    assert "Species behavioural" in snap.special_encounter_features
+    assert snap.special_attacks_features != snap.special_encounter_features
+    assert public_monster_asset(snap, revealed=True) == {}
+
+
+def test_handoff_honours_explicit_actor_record_date_not_other_active_version():
+    q = FakeQuery(monsters=[monster_row(record="2026-11-21")],
+                  scenarios=[scenario_row(status="Ready", ready=1,
+                      MonsterRosterJson=json.dumps([
+                          {"actor_id": "ORC-A", "species": "ORC", "role": "ordinary",
+                           "hp_start": 6, "weapon": "shortsword",
+                           "species_record_date": "2026-11-22"}]))],
+                  cases=[case_row(status="Ready")])
+    scenario = MonsterTestScenarios(q).resolve("ORC-T001-A")
+    with pytest.raises(CatalogueError):
+        build_test_handoff(scenario, MonsterCatalogue(q),
+                           mechanics_verified_ref="source.melee1")
+    assert "[RecordDate] = ?" in q.calls[-1][0]
+    assert q.calls[-1][1] == ("MentzerBECMI", "ORC", "2026-11-22")
+
+
+def test_handoff_rejects_partial_version_pins_for_same_species():
+    roster = [
+        {"actor_id": "ORC-A", "species": "ORC", "role": "ordinary",
+         "hp_start": 6, "species_record_date": "2026-11-21"},
+        {"actor_id": "ORC-B", "species": "ORC", "role": "ordinary",
+         "hp_start": 4, "species_record_date": None},
+    ]
+    q = FakeQuery(monsters=[monster_row()],
+                  scenarios=[scenario_row(status="Ready", ready=1,
+                      MonsterCount=2, MonsterRosterJson=json.dumps(roster))],
+                  cases=[case_row(status="Ready")])
+    scenario = MonsterTestScenarios(q).resolve("ORC-T001-A")
+    with pytest.raises(NotPlayable):
+        build_test_handoff(scenario, MonsterCatalogue(q),
+                           mechanics_verified_ref="source.melee1")
+    assert not any("[Rules].[Monster]" in sql for sql, _ in q.calls)
