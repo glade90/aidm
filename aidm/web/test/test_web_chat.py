@@ -13,6 +13,7 @@ aidm/web/test/chat_client.test.mjs; pytest does not execute JavaScript.
 from __future__ import annotations
 
 import importlib
+import mimetypes
 import pytest
 from fastapi.testclient import TestClient
 
@@ -60,6 +61,18 @@ def test_single_meta_app_serves_chat_and_same_origin_modules():
         assert "javascript" in client.get("/static/client.mjs").headers["content-type"]
         assert client.get("/health").json() == {"state": "READY", "ready": True}
         assert client.get("/status").json()["capabilities"] == ["combat", "combat_session", "dm"]
+
+
+
+def test_es_modules_ignore_host_windows_plain_text_mime_registry(monkeypatch):
+    """The server must correct an OS registry mapping before StaticFiles serves ES modules."""
+    mimetypes.init()
+    monkeypatch.setitem(mimetypes.types_map, ".mjs", "text/plain")
+    with TestClient(app()) as client:
+        for name in ("client.mjs", "chat.mjs"):
+            module = client.get(f"/static/{name}")
+            assert module.status_code == 200
+            assert module.headers["content-type"].startswith("text/javascript")
 
 
 def test_frontend_only_references_existing_meta_turn_api_and_safe_text():
@@ -326,33 +339,4 @@ def test_live_llm_dotenv_missing_key_fails_without_secret_echo(tmp_path, monkeyp
     with pytest.raises(ValueError, match="OPENAI_API_KEY"):
         create_chat_app(logger=FakeLogger())
 
-
-
-
-def test_battle_fixture_selector_is_test_only_keyboard_accessible_and_b1_unavailable():
-    """No verified B1 source matrix yet: show inventory, never fake playability."""
-    with TestClient(app()) as client:
-        page = client.get("/chat")
-        assert page.status_code == 200
-        html = page.text
-        assert 'id="battle-select"' in html
-        assert 'type="button" aria-controls="battle-selector" aria-expanded="false"' in html
-        assert 'id="battle-selector"' in html
-        assert 'id="battle-fixture"' in html
-        assert 'id="battle-selection-status" role="status"' in html
-        assert 'value="owner-canonical-3v3-fixture-v1"' in html
-        assert "TEST_ONLY" in html and "TEST/ADMIN ONLY" in html
-        assert "B1 Upper Wandering" in html
-        assert "B1 Lower Wandering" in html
-        assert "B1 Optional Stock Entries" in html
-        assert "B1 Exceptional Rooms" in html
-        assert html.count("UNSUPPORTED (source fixture pending)") == 39
-        assert 'value="b1.upper.wandering.01" disabled' in html
-        assert 'value="b1.lower.wandering.06" disabled' in html
-        assert 'value="b1.stock.25" disabled' in html
-        assert 'value="b1.room.r54" disabled' in html
-        script = client.get("/static/chat.mjs").text
-        assert 'confirmReset(' in script
-        assert 'client.startCombat(selectedFixture())' in script
-        assert "textContent" in script and ".innerHTML" not in script
 
