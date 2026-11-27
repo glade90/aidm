@@ -59,8 +59,10 @@ def diagnose_sql(open_connection, *, report=print) -> bool:
             report(f"ODBC_CONNECT: BLOCKED [{state}] {_failure_class(state)}")
             return False
         try:
+            # pyodbc query-timeout is a Connection attribute; setting
+            # Cursor.timeout raises AttributeError and masks a valid login.
+            connection.timeout = 10
             cursor = connection.cursor()
-            cursor.timeout = 10
             cursor.execute("SELECT DB_NAME()")
             row = cursor.fetchone()
             db_name = row[0] if row else None
