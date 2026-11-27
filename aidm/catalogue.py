@@ -16,6 +16,7 @@ from datetime import date, datetime
 from decimal import Decimal
 import json
 import re
+from types import MappingProxyType
 from typing import Any, Callable, Mapping, Protocol, Sequence
 
 _ID = re.compile(r"[A-Za-z][A-Za-z0-9._-]{0,79}\Z")
@@ -139,6 +140,58 @@ def _select(columns: tuple[str, ...], table: str, tail: str) -> str:
     return f"SELECT {', '.join('[' + c + ']' for c in columns)} FROM {table} WHERE {tail}"
 
 
+def _reviewed_read_contracts() -> dict[str, tuple[str, ...]]:
+    """Exactly SIX fixed provider SELECTs: no SQL grammar/prefix acceptance.
+
+    These are the only statements the trusted catalogue/scenario repositories
+    construct. A caller cannot pass a second statement, SELECT INTO, alternative
+    table/columns, joins, hints or extra predicates to the DB-API adapter.
+    The SQL text itself is NOT parameterised by the requesting player or LLM.
+    """
+    contracts: dict[str, tuple[str, ...]] = {}
+    for gate in (
+        "[Active] = 1 AND [SourceStatus] = N'Approved'",
+        "[Active] = 0 AND [SourceStatus] = N'SourceChecked'",
+    ):
+        tail = "[RulesetCode] = ? AND [MonsterCode] = ? AND " + gate
+        contracts[_select(_MONSTER_COLS, "[Rules].[Monster]", tail)] = (
+            "RulesetCode", "MonsterCode",
+        )
+        contracts[_select(_MONSTER_COLS, "[Rules].[Monster]",
+                          tail + " AND [RecordDate] = ?")] = (
+            "RulesetCode", "MonsterCode", "RecordDate",
+        )
+    contracts[_select(_SCENARIO_COLS, "[Test].[MonsterTestScenario]",
+                      "[ScenarioCode] = ?")] = ("ScenarioCode",)
+    contracts[_select(_CASE_COLS, "[Test].[MonsterTestCase]",
+                      "[ScenarioCode] = ?")] = ("ScenarioCode",)
+    assert len(contracts) == 6, "Reviewed read-only contract must remain explicit"
+    return contracts
+
+
+# Immutable mapping protects the reviewed query family against later mutation.
+_REVIEWED_SQL_READS = MappingProxyType(_reviewed_read_contracts())
+
+
+def _check_reviewed_read(sql: object, parameters: object) -> None:
+    """Validate exact query text AND expected bound values before opening ODBC.
+
+    A genuine SQL SELECT-only login is still mandatory: an allowlist is a
+    defence-in-depth boundary and does not confer database privileges.
+    """
+    if type(sql) is not str or type(parameters) is not tuple:
+        raise CatalogueError("Only reviewed parameterised catalogue reads permitted")
+    contract = _REVIEWED_SQL_READS.get(sql)
+    if contract is None or len(parameters) != len(contract):
+        raise CatalogueError("Only reviewed parameterised catalogue reads permitted")
+    for name, value in zip(contract, parameters, strict=True):
+        if name == "RecordDate":
+            if type(value) is not str or _date(value) != value:
+                raise CatalogueError("Invalid query parameter")
+        else:
+            _id(value, "query parameter")
+
+
 class SqlServerReader:
     """PEP-249 SQL Server adapter. Caller injects a READ-ONLY account/factory.
 
@@ -153,8 +206,10 @@ class SqlServerReader:
         self._timeout = timeout_seconds
 
     def __call__(self, sql: str, parameters: tuple[object, ...]) -> list[dict[str, Any]]:
-        if not isinstance(sql, str) or not sql.startswith("SELECT ") or not isinstance(parameters, tuple):
-            raise CatalogueError("Only bounded parameterised read-only queries permitted")
+        # No connection is opened until this exact reviewed query contract is
+        # accepted. A SELECT prefix is not a security boundary (SELECT INTO,
+        # SELECT; DELETE, and arbitrary table access could otherwise pass).
+        _check_reviewed_read(sql, parameters)
         connection = None
         cursor = None
         try:

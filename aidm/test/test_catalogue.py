@@ -14,7 +14,7 @@ import pytest
 from aidm.catalogue import (
     CatalogueError, CatalogueUnavailable, MonsterCatalogue,
     MonsterTestScenarios, NotPlayable, SqlServerReader,
-    build_test_handoff, public_monster_asset, _MONSTER_COLS, _SCENARIO_COLS, _CASE_COLS,
+    build_test_handoff, public_monster_asset, _MONSTER_COLS, _SCENARIO_COLS, _CASE_COLS, _select,
 )
 
 
@@ -227,9 +227,14 @@ def test_readonly_dbapi_adapter_is_parameterised_bounded_closes_and_masks_errors
         def close(self): self.closed = True
     obj = Connection()
     reader = SqlServerReader(lambda: obj)
-    rows = reader("SELECT [MonsterCode], [RecordDate] FROM [Rules].[Monster] WHERE [MonsterCode] = ?", ("ORC",))
+    allowed = _select(
+        _MONSTER_COLS, "[Rules].[Monster]",
+        "[RulesetCode] = ? AND [MonsterCode] = ? AND [Active] = 1 "
+        "AND [SourceStatus] = N'Approved'",
+    )
+    rows = reader(allowed, ("MentzerBECMI", "ORC"))
     assert rows == [{"MonsterCode": "ORC", "RecordDate": date(2026, 11, 21)}]
-    assert obj.cur.calls[0][1] == ("ORC",)
+    assert obj.cur.calls[0][1] == ("MentzerBECMI", "ORC")
     assert obj.timeout == 10
     assert obj.timeout_seen_when_cursor_opened == 10
     assert obj.closed and obj.cur.closed
@@ -237,7 +242,7 @@ def test_readonly_dbapi_adapter_is_parameterised_bounded_closes_and_masks_errors
         reader("DELETE FROM [Rules].[Monster]", ())
     with pytest.raises(CatalogueUnavailable) as error:
         SqlServerReader(lambda: (_ for _ in ()).throw(RuntimeError("password=secret")))(
-            "SELECT 1", ()
+            allowed, ("MentzerBECMI", "ORC")
         )
     assert "secret" not in str(error.value)
 
@@ -464,3 +469,122 @@ def test_handoff_rejects_partial_version_pins_for_same_species():
         build_test_handoff(scenario, MonsterCatalogue(q),
                            mechanics_verified_ref="source.melee1")
     assert not any("[Rules].[Monster]" in sql for sql, _ in q.calls)
+
+
+def test_sql_read_contract_blocks_bon_select_prefix_exploit_before_driver_open():
+    """DEF-01: deliberately malicious SELECT-prefixed batches must never execute."""
+    allowed = _select(
+        _MONSTER_COLS, "[Rules].[Monster]",
+        "[RulesetCode] = ? AND [MonsterCode] = ? AND [Active] = 1 "
+        "AND [SourceStatus] = N'Approved'",
+    )
+    opened = []
+    def factory():
+        opened.append("CONNECTED")
+        raise AssertionError("Rejected input must not open ODBC")
+    reader = SqlServerReader(factory)
+    valid_args = ("MentzerBECMI", "ORC")
+    for sql in (
+        "SELECT 1",
+        allowed + "; DELETE FROM [Rules].[Monster]",
+        allowed + "\nDELETE FROM [Rules].[Monster]",
+        allowed.replace(" FROM [Rules].[Monster]", " INTO [dbo].[Probe] FROM [Rules].[Monster]"),
+        allowed.replace("[Rules].[Monster]", "[dbo].[Unreviewed]"),
+        allowed + " -- extra",
+        allowed.replace("[SourceStatus] = N'Approved'", "[SourceStatus] <> N'Approved'"),
+        allowed.replace("[RecordDate]", "[UnapprovedDate]"),
+        "SELECT [MonsterCode] FROM [Rules].[Monster]",
+        " SELECT " + allowed,
+    ):
+        with pytest.raises(CatalogueError):
+            reader(sql, valid_args)
+    assert not opened
+
+
+@pytest.mark.parametrize("params", [
+    (), ("MentzerBECMI",), ("MentzerBECMI", "ORC", "2026-11-21"),
+    ["MentzerBECMI", "ORC"],
+    ("MentzerBECMI", 7), (True, "ORC"), ("MentzerBECMI", "ORC; DELETE"),
+    ("MentzerBECMI", "ORC' OR '1'='1"), ("MentzerBECMI", ""),
+])
+def test_sql_read_contract_rejects_wrong_parameters_before_driver_open(params):
+    allowed = _select(
+        _MONSTER_COLS, "[Rules].[Monster]",
+        "[RulesetCode] = ? AND [MonsterCode] = ? AND [Active] = 1 "
+        "AND [SourceStatus] = N'Approved'",
+    )
+    opened = []
+    def forbidden():
+        opened.append(1)
+        raise RuntimeError("must not open")
+    with pytest.raises(CatalogueError):
+        SqlServerReader(forbidden)(allowed, params)
+    assert not opened
+
+
+def test_sql_reader_accepts_exact_six_reviewed_shapes_with_bound_parameters():
+    """Two monster approval gates x pinned/unpinned, plus scenario and cases."""
+    from aidm.catalogue import _REVIEWED_SQL_READS
+    assert len(_REVIEWED_SQL_READS) == 6
+    calls = []
+    class Cursor:
+        description = (("ValidatedQuery",),)
+        def __init__(self):
+            self.closed = False
+        def execute(self, sql, *parameters):
+            calls.append((sql, parameters))
+        def fetchmany(self, n):
+            assert n == 101
+            return [("ok",)]
+        def close(self):
+            self.closed = True
+    class Connection:
+        timeout = None
+        def __init__(self):
+            self.cursor_obj = Cursor()
+            self.closed = False
+        def cursor(self):
+            return self.cursor_obj
+        def close(self):
+            self.closed = True
+    opened = []
+    def factory():
+        conn = Connection()
+        opened.append(conn)
+        return conn
+    reader = SqlServerReader(factory)
+    for sql, names in _REVIEWED_SQL_READS.items():
+        params = tuple(
+            "2026-11-21" if name == "RecordDate"
+            else "ORC-T001-A" if name == "ScenarioCode"
+            else "MentzerBECMI" if name == "RulesetCode"
+            else "ORC"
+            for name in names
+        )
+        assert reader(sql, params) == [{"ValidatedQuery": "ok"}]
+    assert len(opened) == len(calls) == 6
+    assert all(conn.closed and conn.cursor_obj.closed and conn.timeout == 10
+               for conn in opened)
+
+
+def test_sql_reader_rejects_wrong_date_and_parameter_count_for_all_tables():
+    from aidm.catalogue import _REVIEWED_SQL_READS
+    opened = []
+    def factory():
+        opened.append(True)
+        raise AssertionError("must not connect")
+    reader = SqlServerReader(factory)
+    for sql, contract in _REVIEWED_SQL_READS.items():
+        with pytest.raises(CatalogueError):
+            reader(sql, ())
+        with pytest.raises(CatalogueError):
+            reader(sql, tuple("X" for _ in range(len(contract) + 1)))
+        if "RecordDate" in contract:
+            for invalid_date in ("2026-99-99", "2026-11-21' --", None, 20261121):
+                params = tuple(invalid_date if col == "RecordDate" else
+                               "MentzerBECMI" if col == "RulesetCode" else "ORC"
+                               for col in contract)
+                with pytest.raises(CatalogueError):
+                    reader(sql, params)
+    assert not opened
+
