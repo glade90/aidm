@@ -205,8 +205,10 @@ def test_invalid_dimensions_rejected_without_geometry_inference(dimensions):
 
 def test_readonly_dbapi_adapter_is_parameterised_bounded_closes_and_masks_errors():
     class Cursor:
+        # pyodbc Cursor has no writable .timeout: __slots__ ensures a
+        # regression cannot pass by quietly adding one to a fake object.
+        __slots__ = ("calls", "closed")
         description = (("MonsterCode",), ("RecordDate",))
-        timeout = None
         def __init__(self): self.calls = []; self.closed = False
         def execute(self, sql, *params): self.calls.append((sql, params))
         def fetchmany(self, n):
@@ -214,14 +216,22 @@ def test_readonly_dbapi_adapter_is_parameterised_bounded_closes_and_masks_errors
             return [("ORC", date(2026, 11, 21))]
         def close(self): self.closed = True
     class Connection:
-        def __init__(self): self.cur = Cursor(); self.closed = False
-        def cursor(self): return self.cur
+        def __init__(self):
+            self.cur = Cursor()
+            self.closed = False
+            self.timeout = 0
+            self.timeout_seen_when_cursor_opened = None
+        def cursor(self):
+            self.timeout_seen_when_cursor_opened = self.timeout
+            return self.cur
         def close(self): self.closed = True
     obj = Connection()
     reader = SqlServerReader(lambda: obj)
     rows = reader("SELECT [MonsterCode], [RecordDate] FROM [Rules].[Monster] WHERE [MonsterCode] = ?", ("ORC",))
     assert rows == [{"MonsterCode": "ORC", "RecordDate": date(2026, 11, 21)}]
-    assert obj.cur.calls[0][1] == ("ORC",) and obj.cur.timeout == 10
+    assert obj.cur.calls[0][1] == ("ORC",)
+    assert obj.timeout == 10
+    assert obj.timeout_seen_when_cursor_opened == 10
     assert obj.closed and obj.cur.closed
     with pytest.raises(CatalogueError):
         reader("DELETE FROM [Rules].[Monster]", ())
