@@ -14,6 +14,7 @@ import argparse
 import csv
 from datetime import datetime, timezone
 import hashlib
+import importlib.util
 import io
 import json
 import os
@@ -230,6 +231,95 @@ def inspect_reader(expected: str, server: str, driver: str, machine: str,
     return result
 
 
+def _load_reviewed_catalogue(path: Path) -> Any:
+    """Load the exact source-controlled catalogue.py copied by the admin.
+
+    Python -I deliberately omits the script directory from sys.path. An
+    absolute reviewed-file import avoids a writable personal user site.
+    """
+    if not path.is_file() or path.name != "catalogue.py":
+        raise ProbeBlocked("REVIEWED_CATALOGUE_FILE_MISSING")
+    spec = importlib.util.spec_from_file_location("aidm_reader_reviewed_catalogue", path)
+    if spec is None or spec.loader is None:
+        raise ProbeBlocked("REVIEWED_CATALOGUE_FILE_MISSING")
+    module = importlib.util.module_from_spec(spec)
+    # Dataclass type resolution requires the module in sys.modules.
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+    except Exception:
+        raise ProbeBlocked("REVIEWED_CATALOGUE_IMPORT_FAILED") from None
+    return module
+
+
+def _check_catalogue_source(catalogue: Any, query: Callable[..., Any]) -> dict[str, Any]:
+    """Developer read-only smoke of three parent UAT areas, NOT BON acceptance.
+
+    The real UAT owner still checks source-field fidelity and records each
+    case separately in DnD_Test under their administrative identity.
+    """
+    species = ("ORC", "GIANT_CENTIPEDE", "CARRION_CRAWLER", "GIANT_CRAB_SPIDER")
+    repo = catalogue.MonsterCatalogue(query)
+    for code in species:
+        try:
+            snap = repo.resolve("MentzerBECMI", code, source_checked_test_only=True)
+            if (snap.active or snap.source_status != "SourceChecked"
+                    or not snap.source_reference or not snap.hit_dice_text
+                    or snap.armor_class is None or not snap.attack_pattern
+                    or not snap.damage_pattern or not snap.special_attacks_features
+                    or not snap.special_encounter_features
+                    or not all(v is not None for v in
+                               (snap.d1_feet, snap.d2_feet, snap.z_feet))):
+                raise ProbeBlocked("DRAFT_SPECIES_INCOMPLETE_OR_UNEXPECTED")
+            try:
+                approved = repo.resolve("MentzerBECMI", code)
+            except catalogue.CatalogueError:
+                pass  # The existing drafts have no approved source version.
+            else:
+                # A genuinely approved version needs owner review. Never infer
+                # that a source-checked draft was promoted, or grant readiness.
+                if approved.active and approved.source_status == "Approved":
+                    raise ProbeBlocked("APPROVED_VERSION_REQUIRES_OWNER_REVIEW")
+                raise ProbeBlocked("APPROVAL_GATE_UNEXPECTED")
+        except ProbeBlocked:
+            raise
+        except Exception:
+            raise ProbeBlocked("DRAFT_SPECIES_RETRIEVAL_BLOCKED") from None
+
+    scenarios = catalogue.MonsterTestScenarios(query)
+    for code in ("ORC-T001-A", "ORC-T001-B"):
+        try:
+            fixture = scenarios.resolve(code, include_unready_test_only=True)
+            if (fixture.ready or fixture.ready_for_execution
+                    or fixture.status != "Specified" or not fixture.cases
+                    or any(case.executable for case in fixture.cases)):
+                raise ProbeBlocked("TEST_CASE_GATE_UNEXPECTED")
+        except ProbeBlocked:
+            raise
+        except Exception:
+            raise ProbeBlocked("NORMALIZED_SCENARIO_RETRIEVAL_BLOCKED") from None
+    return {
+        "status": "DEVELOPER_SMOKE_PASS_NOT_BON_UAT",
+        "reviewed_draft_species": len(species),
+        "draft_approval_gates": len(species),
+        "normalized_scenarios_inspected": 2,
+        "writes_performed": False,
+        "approved_as_playable": False,
+    }
+
+
+def _run_source_smoke(server: str, driver: str) -> dict[str, Any]:
+    """Use fixed production provider code from same locked runtime directory."""
+    source_path = Path(__file__).with_name("catalogue.py")
+    catalogue = _load_reviewed_catalogue(source_path)
+    sql_reader = catalogue.SqlServerReader(
+        lambda: _connect_integrated(server, driver), timeout_seconds=10,
+    )
+    result = _check_catalogue_source(catalogue, sql_reader)
+    result["catalogue_sha256"] = hashlib.sha256(source_path.read_bytes()).hexdigest()
+    return result
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=STORY + " local reader proof")
     parser.add_argument("--server", required=True)
@@ -237,12 +327,22 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--expected-account", required=True)
     parser.add_argument("--source-sha", required=True)
     parser.add_argument("--report-file", required=True)
+    parser.add_argument("--with-source-smoke", action="store_true")
     args = parser.parse_args(argv)
     machine = os.environ.get("COMPUTERNAME", "")
     result = inspect_reader(
         args.expected_account, args.server, args.driver, machine,
         args.source_sha,
     )
+    if args.with_source_smoke and result["status"] == "PASS":
+        try:
+            result["provider_smoke"] = _run_source_smoke(args.server, args.driver)
+        except ProbeBlocked as blocked:
+            result["status"] = "BLOCKED"
+            result["reason"] = blocked.reason
+        except Exception:
+            result["status"] = "BLOCKED"
+            result["reason"] = "SOURCE_SMOKE_FAILED"
     result["script_sha256"] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     report_path = Path(args.report_file)
     if not report_path.is_absolute():
