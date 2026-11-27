@@ -273,8 +273,12 @@ def _check_catalogue_source(catalogue: Any, query: Callable[..., Any]) -> dict[s
                 raise ProbeBlocked("DRAFT_SPECIES_INCOMPLETE_OR_UNEXPECTED")
             try:
                 approved = repo.resolve("MentzerBECMI", code)
-            except catalogue.CatalogueError:
-                pass  # The existing drafts have no approved source version.
+            except catalogue.CatalogueUnavailable:
+                raise ProbeBlocked("APPROVAL_GATE_QUERY_UNAVAILABLE") from None
+            except catalogue.CatalogueError as error:
+                # Only a missing/ambiguous approved row is the expected gate.
+                if str(error) != "Monster version missing or ambiguous":
+                    raise ProbeBlocked("APPROVAL_GATE_QUERY_UNEXPECTED") from None
             else:
                 # A genuinely approved version needs owner review. Never infer
                 # that a source-checked draft was promoted, or grant readiness.
