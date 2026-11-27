@@ -72,6 +72,19 @@ Rerun from PEQUOD:
 
 The previous full 707 Python JUnit / 22 Node / 93.69% PASS receipts are for source `3c2ad6f8`, **not** the diagnostic preflight commit. All source checks and BON UAT remain outstanding until real SQL works and BON signs off.
 
+## 27 November fix: pyodbc connection-level query timeout
+
+The owner confirmed a direct `pyodbc.connect(...)` with Driver 17, `SERVER=lpc:.` and Windows Authentication successfully returned `DnD` for `SELECT DB_NAME()`. The safe preflight then reported `DATABASE_CONTEXT: BLOCKED [UNKNOWN]` because our code incorrectly assigned `cursor.timeout = 10`. pyodbc has `Connection.timeout`, **not writable `Cursor.timeout`**; this raised a Python exception that was intentionally hidden by the safe diagnostic. The same mistake existed in `SqlServerReader`, which would have made all monster SELECTs fail even after SQL login succeeded. The code now applies `connection.timeout = 10` **before obtaining a cursor** in both the diagnostic and production reader.
+
+The unit-test fakes now use `__slots__` to reject a cursor.timeout assignment, and assert that `Connection.timeout` is set before the cursor is created. This models the actual pyodbc API. No database schema, source-approval or encounter readiness flags have been modified.
+
+New source-matched PEQUOD verification needed:
+    git pull --ff-only origin davos
+    python -m pytest aidm/test/test_catalogue.py aidm/test/test_catalogue_smoke.py -q
+    python -m aidm.catalogue_smoke
+
+The complete source-matched Python runner + Node regression must also be repeated before claiming this new SHA green. If real Monster/Test v0.4 schema is missing, expect safe blocked table/column indicators now that the ODBC connection and timeout attribute are corrected. If the four original seed rows are absent or not SourceChecked, record that separately rather than approving or inserting source rows here.
+
 ## Explicit remaining acceptance
 
 New offline integration regression is added in aidm/test/test_catalogue_combat.py: two distinct Ready synthetic Orc rosters, same approved source version and different individual HP; source loader is deliberately disabled before starting two full real CombatSessionService/Meta START, ACTION and RESET paths. Existing canonical 3v3, blocked special/leader rules and source-safe projection are also tested. Test definitions use mocked approved versions; they DO NOT imply the real PEQUOD SourceChecked rows have been approved.
