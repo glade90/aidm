@@ -67,8 +67,10 @@ try {
     }
 
     $SourceFile = Join-Path $RepoRoot 'aidm\reader_probe.py'
-    if (-not (Test-Path -LiteralPath $SourceFile -PathType Leaf)) {
-        Fail 'SOURCE_SHA_MISSING_READER_PROBE'
+    $CatalogueSourceFile = Join-Path $RepoRoot 'aidm\catalogue.py'
+    if (-not (Test-Path -LiteralPath $SourceFile -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $CatalogueSourceFile -PathType Leaf)) {
+        Fail 'SOURCE_SHA_MISSING_READER_OR_CATALOGUE'
     }
     $gitSha = (& git.exe -C $RepoRoot rev-parse HEAD 2>$null | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or $gitSha -notmatch '^[0-9a-f]{40}$') { Fail 'SOURCE_REVISION_MISSING' }
@@ -88,11 +90,15 @@ try {
     Set-OnlyReaderAcl -Path $RuntimeDir -Rights 'RX'
     Set-OnlyReaderAcl -Path $ReportDir -Rights 'M'
     $ProbePath = Join-Path $RuntimeDir 'reader_probe.py'
+    $CataloguePath = Join-Path $RuntimeDir 'catalogue.py'
     Copy-Item -LiteralPath $SourceFile -Destination $ProbePath -Force
-    # Reader is not permitted to change the audited executable code.
+    Copy-Item -LiteralPath $CatalogueSourceFile -Destination $CataloguePath -Force
+    # Reader is not permitted to change either source-controlled Python file.
     $readerFileGrant = "$($ReaderAccount):RX"
-    & icacls.exe $ProbePath '/inheritance:r' '/grant:r' '*S-1-5-18:F' '*S-1-5-32-544:F' $readerFileGrant | Out-Null
-    if ($LASTEXITCODE -ne 0) { Fail 'CODE_ACL_INVALID' }
+    foreach ($file in @($ProbePath, $CataloguePath)) {
+        & icacls.exe $file '/inheritance:r' '/grant:r' '*S-1-5-18:F' '*S-1-5-32-544:F' $readerFileGrant | Out-Null
+        if ($LASTEXITCODE -ne 0) { Fail 'CODE_ACL_INVALID' }
+    }
 
     $stamp = Get-Date -Format 'yyyyMMdd-HHmmss-fff'
     $ReportFile = Join-Path $ReportDir "proof-$stamp.json"
@@ -102,7 +108,8 @@ try {
         '--driver', (Quote-TaskValue $Driver),
         '--expected-account', (Quote-TaskValue $ReaderAccount),
         '--source-sha', (Quote-TaskValue $gitSha),
-        '--report-file', (Quote-TaskValue $ReportFile)
+        '--report-file', (Quote-TaskValue $ReportFile),
+        '--with-source-smoke'
     ) -join ' '
     $action = New-ScheduledTaskAction -Execute $PythonExe -Argument $arguments -WorkingDirectory $RuntimeDir
     $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Seconds 60) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew
@@ -146,19 +153,24 @@ try {
     }
     $receipt = Get-Content -LiteralPath $ReportFile -Raw | ConvertFrom-Json
     $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $ProbePath).Hash.ToLowerInvariant()
+    $catalogueHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $CataloguePath).Hash.ToLowerInvariant()
     Write-Output ("AttestationPath: " + $ReportFile)
     Write-Output ("SourceSHA: " + $gitSha)
     Write-Output ("ReaderScriptSHA256: " + $hash)
+    Write-Output ("CatalogueSHA256: " + $catalogueHash)
     Write-Output ("TaskLastResult: " + $lastResult)
     Write-Output ("ProofStatus: " + $receipt.status)
     Write-Output ("ProofReason: " + $receipt.reason)
     if ($lastResult -ne 0 -or $receipt.status -ne 'PASS' -or
         $receipt.source_sha -ne $gitSha -or $receipt.script_sha256 -ne $hash -or
         $receipt.process_account -ine $ReaderAccount -or
-        @($receipt.objects).Count -ne 3) {
+        @($receipt.objects).Count -ne 3 -or
+        $receipt.provider_smoke.status -ne 'DEVELOPER_SMOKE_PASS_NOT_BON_UAT' -or
+        $receipt.provider_smoke.catalogue_sha256 -ne $catalogueHash) {
         Fail 'READER_PROCESS_ATTESTATION_FAILED'
     }
-    Write-Output 'PASS: Windows process, SQL login, three SELECT-only objects verified.'
+    Write-Output 'PASS: Windows process, SQL login, three SELECT-only objects and source-backed developer smoke verified.'
+    Write-Output 'BON UAT-01/02/03 still need independent owner execution records.'
     exit 0
 }
 catch {
