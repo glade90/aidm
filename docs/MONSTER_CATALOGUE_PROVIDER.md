@@ -52,6 +52,26 @@ Optional SQL smoke is strictly local with a DBA-approved read-only account and a
   export AIDM_SQL_ODBC_CONNECTION
 Run `python -m aidm.catalogue_smoke` after securely entering the connection string (and after a DBA confirms a SELECT-only database principal). This CLI uses aidm.config's registered-secret boundary, injected pyodbc, the bounded SqlServerReader and explicit development mode only. It prints four SourceChecked inactive version/stats/ellipsoid summaries plus the normalized Orc scenario status; it never prints the connection or executes INSERT/UPDATE/DDL. Then `unset AIDM_SQL_ODBC_CONNECTION`. Missing pyodbc, schema or seed rows is a reported BLOCKED gate. This is retrieval-only smoke, not source approval or proof of runnable combat.
 
+## 26 November SQL smoke failure: safe diagnostic preflight
+
+Owner ran a live PEQUOD smoke at source 3c2ad6f8 and all four monster lookups and the Orc test scenario returned generic `CatalogueUnavailable`. Because `SqlServerReader` intentionally suppresses the raw pyodbc exception to prevent secret leakage into player/server surfaces, this does NOT prove missing tables: wrong database, ODBC driver/host, login, permissions and missing v0.4 schema columns are all possible.
+
+From `davos` head at or later than `6c31d619e0cf7149843b5f7afe10e92287a232fa`, `python -m aidm.catalogue_smoke` runs a developer-only **read-only preflight** before the four lookups. It checks connectivity with `SELECT DB_NAME()` (must be `DnD`), then `SELECT TOP (0)` all required v0.4 Monster / TestScenario / TestCase columns. Safe output is only `ODBC_CONNECT`, `DATABASE_CONTEXT`, `RULES_MONSTER`, `TEST_SCENARIO`, `TEST_CASE`, `OK/BLOCKED`, and a sanitized five-character SQLSTATE category; no original driver text, server, user, password or connection string is displayed. Confirm the configured principal has SELECT-only authority **before** running. No schema migrations or writes are performed.
+
+Possible results:
+- `ODBC_CONNECT: BLOCKED [08001]`: server/network/ODBC connection failure; `[28000]`: authentication/SQL login; `[IM002]`: missing ODBC driver/DSN; `[HYT00]`: timeout.
+- `DATABASE_CONTEXT: BLOCKED`: connection's default `DATABASE` is not `DnD`; correct the private connection string, not application SQL.
+- `RULES_MONSTER: BLOCKED [42S02]`: table absent/not visible; `[42S22]`: required v0.4 column missing; `[42000]`: SQL permission or syntax. Same for both Test tables.
+- `SCHEMA_AND_SELECT_OK`: table accessible and all expected columns present; this is not approval of the row status or a comprehensive functional validation.
+
+Rerun from PEQUOD:
+    git pull --ff-only origin davos
+    python -m pytest aidm/test/test_catalogue_smoke.py -q
+    python -m aidm.catalogue_smoke
+    unset AIDM_SQL_ODBC_CONNECTION
+
+The previous full 707 Python JUnit / 22 Node / 93.69% PASS receipts are for source `3c2ad6f8`, **not** the diagnostic preflight commit. All source checks and BON UAT remain outstanding until real SQL works and BON signs off.
+
 ## Explicit remaining acceptance
 
 New offline integration regression is added in aidm/test/test_catalogue_combat.py: two distinct Ready synthetic Orc rosters, same approved source version and different individual HP; source loader is deliberately disabled before starting two full real CombatSessionService/Meta START, ACTION and RESET paths. Existing canonical 3v3, blocked special/leader rules and source-safe projection are also tested. Test definitions use mocked approved versions; they DO NOT imply the real PEQUOD SourceChecked rows have been approved.
