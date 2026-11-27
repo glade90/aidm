@@ -42,13 +42,14 @@ class FakeODBCError(Exception):
 
 
 class ProbeCursor:
+    # Real pyodbc.Cursor does not expose a writable timeout attribute.
+    __slots__ = ("database", "failure_table", "failure_code", "queries", "closed")
     def __init__(self, *, database="DnD", failure_table=None, failure_code="42S02"):
         self.database = database
         self.failure_table = failure_table
         self.failure_code = failure_code
         self.queries = []
         self.closed = False
-        self.timeout = None
 
     def execute(self, sql):
         assert sql.startswith("SELECT ")
@@ -68,8 +69,11 @@ class ProbeConnection:
     def __init__(self, cursor):
         self.child = cursor
         self.closed = False
+        self.timeout = 0
+        self.timeout_seen_when_cursor_opened = None
 
     def cursor(self):
+        self.timeout_seen_when_cursor_opened = self.timeout
         return self.child
 
     def close(self):
@@ -89,6 +93,8 @@ def test_odbc_preflight_success_only_three_full_schema_selects():
         "TEST_CASE: SCHEMA_AND_SELECT_OK",
     ]
     assert len(cursor.queries) == 4
+    assert connection.timeout == 10
+    assert connection.timeout_seen_when_cursor_opened == 10
     assert "SpecialEncounterFeatures" in cursor.queries[1]
     assert "TestCaseCode" in cursor.queries[-1]
     assert cursor.closed and connection.closed
