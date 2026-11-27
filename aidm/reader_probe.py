@@ -183,8 +183,8 @@ def _check_permissions(connection: Any, expected: str) -> dict[str, Any]:
 
 def inspect_reader(expected: str, server: str, driver: str, machine: str,
                    source_sha: str, *,
-                   identity_fn: Callable[[], tuple[str, str]] = _token_whoami,
-                   connector: Callable[[str, str], Any] = _connect_integrated,
+                   identity_fn: Callable[[], tuple[str, str]] | None = None,
+                   connector: Callable[[str, str], Any] | None = None,
                    ) -> dict[str, Any]:
     """Fail closed: check Windows token BEFORE opening ODBC, then effective SQL.
 
@@ -200,14 +200,14 @@ def inspect_reader(expected: str, server: str, driver: str, machine: str,
     connection = None
     try:
         _validate_inputs(expected, server, driver, machine, source_sha)
-        account, sid = identity_fn()
+        account, sid = (identity_fn or _token_whoami)()
         if not isinstance(account, str) or account.casefold() != expected.casefold():
             raise ProbeBlocked("WINDOWS_PROCESS_IDENTITY_MISMATCH")
         if not isinstance(sid, str) or not _SID.fullmatch(sid):
             raise ProbeBlocked("WINDOWS_TOKEN_UNAVAILABLE")
         result["process_account"] = account
         result["process_sid"] = sid
-        connection = connector(server, driver)
+        connection = (connector or _connect_integrated)(server, driver)
         verified = _check_permissions(connection, expected)
         result.update(verified)
         result["status"] = "PASS"
