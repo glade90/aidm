@@ -159,8 +159,10 @@ class SqlServerReader:
         cursor = None
         try:
             connection = self._open()
+            # pyodbc sets statement query timeouts on Connection, before
+            # opening a Cursor. Cursor.timeout is not a pyodbc attribute.
+            connection.timeout = self._timeout
             cursor = connection.cursor()
-            cursor.timeout = self._timeout
             cursor.execute(sql, *parameters)
             names = tuple(column[0] for column in cursor.description)
             # Fetch limited, not unbounded results (case list capped at 100).
