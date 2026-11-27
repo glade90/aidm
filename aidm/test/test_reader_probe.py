@@ -234,3 +234,67 @@ def test_cli_error_does_not_echo_conn_string_and_reports_block(tmp_path, monkeyp
     assert j["status"] == "BLOCKED"
     assert j["reason"] == "WINDOWS_PROCESS_IDENTITY_MISMATCH"
     assert "NO ODBC" not in json.dumps(j)
+
+
+
+def test_developer_smoke_loads_exact_repo_catalogue_and_keeps_drafts_unapproved():
+    from aidm.test.test_catalogue import FakeQuery, monster_row, scenario_row, case_row
+    c = probe._load_reviewed_catalogue(Path(__file__).resolve().parents[1] / "catalogue.py")
+    codes = ("ORC", "GIANT_CENTIPEDE", "CARRION_CRAWLER", "GIANT_CRAB_SPIDER")
+    fake = FakeQuery(
+        monsters=[monster_row(code=name, status="SourceChecked", active=0) for name in codes],
+        scenarios=[scenario_row(code=name) for name in ("ORC-T001-A", "ORC-T001-B")],
+        cases=[case_row(code="ORC-T001-A"),
+               case_row(code="ORC-T001-B", TestCaseCode="ORC-T02")],
+    )
+    out = probe._check_catalogue_source(c, fake)
+    assert out["status"] == "DEVELOPER_SMOKE_PASS_NOT_BON_UAT"
+    assert out["reviewed_draft_species"] == out["draft_approval_gates"] == 4
+    assert out["normalized_scenarios_inspected"] == 2
+    assert not out["writes_performed"] and not out["approved_as_playable"]
+    assert len(fake.calls) == 12  # 4 draft + 4 prod + 2 scenario + 2 case
+
+
+def test_developer_smoke_refuses_real_approved_row_without_owner_review():
+    from aidm.test.test_catalogue import FakeQuery, monster_row, scenario_row, case_row
+    c = probe._load_reviewed_catalogue(Path(__file__).resolve().parents[1] / "catalogue.py")
+    codes = ("ORC", "GIANT_CENTIPEDE", "CARRION_CRAWLER", "GIANT_CRAB_SPIDER")
+    fake = FakeQuery(
+        monsters=([monster_row(code=name, status="SourceChecked", active=0) for name in codes]
+                  + [monster_row(code="ORC", status="Approved", active=1)]),
+        scenarios=[scenario_row(code="ORC-T001-A"), scenario_row(code="ORC-T001-B")],
+        cases=[case_row(code="ORC-T001-A"),
+               case_row(code="ORC-T001-B", TestCaseCode="ORC-T02")],
+    )
+    with pytest.raises(probe.ProbeBlocked, match="APPROVED_VERSION_REQUIRES_OWNER_REVIEW"):
+        probe._check_catalogue_source(c, fake)
+
+
+def test_developer_smoke_blocks_missing_or_unready_seed():
+    from aidm.test.test_catalogue import FakeQuery, monster_row
+    c = probe._load_reviewed_catalogue(Path(__file__).resolve().parents[1] / "catalogue.py")
+    fake = FakeQuery(monsters=[monster_row(code="ORC", status="SourceChecked", active=0)])
+    with pytest.raises(probe.ProbeBlocked, match="DRAFT_SPECIES_RETRIEVAL_BLOCKED"):
+        probe._check_catalogue_source(c, fake)
+
+
+def test_optional_source_smoke_reports_blocked_without_claiming_uat(tmp_path, monkeypatch):
+    monkeypatch.setenv("COMPUTERNAME", "PEQUOD")
+    monkeypatch.setattr(probe, "_token_whoami", lambda: (ACCOUNT, SID))
+    monkeypatch.setattr(probe, "_connect_integrated", lambda _s, _d: FakeConnection())
+    monkeypatch.setattr(
+        probe, "_run_source_smoke",
+        lambda *_: (_ for _ in ()).throw(probe.ProbeBlocked("NORMALIZED_SCENARIO_RETRIEVAL_BLOCKED")),
+    )
+    report = tmp_path / "blocked.json"
+    code = probe.main([
+        "--server", "PEQUOD", "--driver", "ODBC Driver 17 for SQL Server",
+        "--expected-account", ACCOUNT, "--source-sha", SHA,
+        "--report-file", str(report), "--with-source-smoke",
+    ])
+    receipt = json.loads(report.read_text())
+    assert code == 3
+    assert receipt["status"] == "BLOCKED"
+    assert receipt["reason"] == "NORMALIZED_SCENARIO_RETRIEVAL_BLOCKED"
+    assert receipt["database"] == "DnD"  # Windows/SQL least privilege passed first
+    assert "BON_UAT_PASS" not in json.dumps(receipt)
