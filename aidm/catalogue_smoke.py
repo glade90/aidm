@@ -12,10 +12,96 @@ Change Log: 2026-11-26 DAVOS — local read-only four-species smoke.
 """
 from __future__ import annotations
 
+import re
+
 from aidm.catalogue import (
     CatalogueError, MonsterCatalogue, MonsterTestScenarios, SqlServerReader,
+    _MONSTER_COLS, _SCENARIO_COLS, _CASE_COLS,
 )
 from aidm.config import load_config
+
+
+def _sql_state(exc: Exception) -> str:
+    """Return only the five-character ODBC SQLSTATE; NEVER print exception."""
+    for arg in getattr(exc, "args", ()):
+        if isinstance(arg, str) and re.fullmatch(r"[A-Z0-9]{5}", arg[:5]):
+            return arg[:5]
+    return "UNKNOWN"
+
+
+def _failure_class(state: str) -> str:
+    if state.startswith(("08", "HYT")):
+        return "server/network/timeout"
+    if state in ("28000", "42000"):
+        return "login or SQL permission"
+    if state in ("42S02", "S0002"):
+        return "table or schema missing/inaccessible"
+    if state in ("42S22", "S0022"):
+        return "required column missing"
+    if state.startswith("IM"):
+        return "ODBC driver or DSN configuration"
+    return "SQL/ODBC error"
+
+
+def diagnose_sql(open_connection, *, report=print) -> bool:
+    """Trusted CLI preflight; SELECT only, no raw errors or secret disclosure.
+
+    Isolates connection, wrong database, missing table/column and permissions
+    before the public-facing SqlServerReader deliberately masks ODBC errors.
+    The explicit configured connection must point at the DnD database.
+    """
+    connection = cursor = None
+    try:
+        try:
+            connection = open_connection()
+        except Exception as exc:
+            state = _sql_state(exc)
+            report(f"ODBC_CONNECT: BLOCKED [{state}] {_failure_class(state)}")
+            return False
+        try:
+            cursor = connection.cursor()
+            cursor.timeout = 10
+            cursor.execute("SELECT DB_NAME()")
+            row = cursor.fetchone()
+            db_name = row[0] if row else None
+        except Exception as exc:
+            state = _sql_state(exc)
+            report(f"DATABASE_CONTEXT: BLOCKED [{state}] {_failure_class(state)}")
+            return False
+        if not isinstance(db_name, str) or db_name.casefold() != "dnd":
+            report("DATABASE_CONTEXT: BLOCKED — connection does not target DnD")
+            return False
+        report("ODBC_CONNECT: OK; DATABASE_CONTEXT: DnD")
+        ready = True
+        for name, table, columns in (
+            ("RULES_MONSTER", "[Rules].[Monster]", _MONSTER_COLS),
+            ("TEST_SCENARIO", "[Test].[MonsterTestScenario]", _SCENARIO_COLS),
+            ("TEST_CASE", "[Test].[MonsterTestCase]", _CASE_COLS),
+        ):
+            # Fixed audited identifiers only; no caller-provided SQL.
+            statement = "SELECT TOP (0) " + ", ".join(
+                f"[{column}]" for column in columns
+            ) + f" FROM {table}"
+            try:
+                cursor.execute(statement)
+                report(f"{name}: SCHEMA_AND_SELECT_OK")
+            except Exception as exc:
+                state = _sql_state(exc)
+                report(f"{name}: BLOCKED [{state}] {_failure_class(state)}")
+                ready = False
+        return ready
+    finally:
+        if cursor is not None:
+            try:
+                cursor.close()
+            except Exception:
+                pass
+        if connection is not None:
+            try:
+                connection.close()
+            except Exception:
+                pass
+
 
 _FOUR = ("ORC", "GIANT_CENTIPEDE", "CARRION_CRAWLER", "GIANT_CRAB_SPIDER")
 
@@ -80,10 +166,13 @@ def main() -> int:
     except ImportError:
         print("BLOCKED: install local pyodbc before optional SQL smoke")
         return 2
-    reader = SqlServerReader(
-        lambda: pyodbc.connect(secret, timeout=5, autocommit=False),
-        timeout_seconds=10,
-    )
+    # Preflight categorises a database access problem without printing raw
+    # ODBC diagnostics, server/username, the connection string or credentials.
+    open_connection = lambda: pyodbc.connect(secret, timeout=5, autocommit=False)
+    if not diagnose_sql(open_connection):
+        print("BLOCKED: fix the reported connection/database/schema gate first")
+        return 1
+    reader = SqlServerReader(open_connection, timeout_seconds=10)
     try:
         return 0 if smoke(query=reader) else 1
     except CatalogueError as exc:
