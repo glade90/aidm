@@ -39,15 +39,18 @@ export class ChatApiClient {
     this.actionUncertain = false; // Must inspect trusted state before retry.
   }
 
-  async startCombat() {
-    const result = await this._send("", { kind: "START", log_since_sequence: 0 });
+  async startCombat(fixtureId) {
+    const result = await this._send("", {
+      kind: "START", log_since_sequence: 0,
+      ...(fixtureId === undefined ? {} : { fixture_id: fixtureId }),
+    });
     if (result.combat && result.status !== "ERROR") {
       this.actionUncertain = false; // START can re-sync after uncertain RESET.
     }
     return result;
   }
 
-  async resetCombat() {
+  async resetCombat(fixtureId) {
     if (!this.combatState) {
       return {
         status: "NEEDS_PLAYER_INPUT", message: "Start a combat encounter first.",
@@ -57,6 +60,7 @@ export class ChatApiClient {
     const oldId = this.combatState.encounter_id;
     const result = await this._send("", {
       kind: "RESET", encounter_id: oldId, log_since_sequence: 0,
+      ...(fixtureId === undefined ? {} : { fixture_id: fixtureId }),
     });
     // Do not claim a reset until the server returns a distinct encounter
     // and a fresh player decision. On an uncertain reset, block ACTION until

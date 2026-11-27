@@ -23,11 +23,74 @@
     </header>
 
     <nav class="combat-actions" aria-label="Combat prototype controls">
-      <button id="combat-start" type="button">Start 3 vs 3 combat</button>
-      <button id="combat-reset" type="button" disabled title="Abandon this combat and start a fresh 3 vs 3 encounter">Reset combat</button>
+      <button id="battle-select" type="button" aria-controls="battle-selector" aria-expanded="false">Select Battle</button>
+      <button id="combat-start" type="button">Start selected battle</button>
+      <button id="combat-reset" type="button" disabled title="Abandon this combat and restart the selected approved fixture">Reset selected battle</button>
       <button id="combat-log" type="button" disabled>View full combat log</button>
       <span id="combat-status" role="status">No encounter started</span>
     </nav>
+
+    <section id="battle-selector" class="battle-selector" hidden aria-label="Battle selector — test mode only">
+      <h2>Choose a test battle</h2>
+      <p>TEST/ADMIN ONLY. Source entry IDs below are inventory placeholders, not playable
+         B1 encounters or verified monster statistics. Unavailable fixtures cannot start.</p>
+      <label for="battle-fixture">Battle fixture</label>
+      <select id="battle-fixture">
+        <optgroup label="Owner-approved synthetic test">
+          <option value="owner-canonical-3v3-fixture-v1">Alho, Evro and Sho vs three orcs — TEST_ONLY</option>
+        </optgroup>
+        <optgroup label="B1 Upper Wandering — source verification pending">
+          <option value="b1.upper.wandering.01" disabled>U01 — UNSUPPORTED (source fixture pending)</option>
+          <option value="b1.upper.wandering.02" disabled>U02 — UNSUPPORTED (source fixture pending)</option>
+          <option value="b1.upper.wandering.03" disabled>U03 — UNSUPPORTED (source fixture pending)</option>
+          <option value="b1.upper.wandering.04" disabled>U04 — UNSUPPORTED (source fixture pending)</option>
+          <option value="b1.upper.wandering.05" disabled>U05 — UNSUPPORTED (source fixture pending)</option>
+          <option value="b1.upper.wandering.06" disabled>U06 — UNSUPPORTED (source fixture pending)</option>
+        </optgroup>
+        <optgroup label="B1 Lower Wandering — source verification pending">
+          <option value="b1.lower.wandering.01" disabled>L01 — UNSUPPORTED (source fixture pending)</option>
+          <option value="b1.lower.wandering.02" disabled>L02 — UNSUPPORTED (source fixture pending)</option>
+          <option value="b1.lower.wandering.03" disabled>L03 — UNSUPPORTED (source fixture pending)</option>
+          <option value="b1.lower.wandering.04" disabled>L04 — UNSUPPORTED (source fixture pending)</option>
+          <option value="b1.lower.wandering.05" disabled>L05 — UNSUPPORTED (source fixture pending)</option>
+          <option value="b1.lower.wandering.06" disabled>L06 — UNSUPPORTED (source fixture pending)</option>
+        </optgroup>
+        <optgroup label="B1 Optional Stock Entries — source verification pending">
+          <option value="b1.stock.01" disabled>S01 — UNSUPPORTED (source fixture pending)</option>
+          <option value="b1.stock.02" disabled>S02 — UNSUPPORTED (source fixture pending)</option>
+          <option value="b1.stock.03" disabled>S03 — UNSUPPORTED (source fixture pending)</option>
+          <option value="b1.stock.04" disabled>S04 — UNSUPPORTED (source fixture pending)</option>
+          <option value="b1.stock.05" disabled>S05 — UNSUPPORTED (source fixture pending)</option>
+          <option value="b1.stock.06" disabled>S06 — UNSUPPORTED (source fixture pending)</option>
+          <option value="b1.stock.07" disabled>S07 — UNSUPPORTED (source fixture pending)</option>
+          <option value="b1.stock.08" disabled>S08 — UNSUPPORTED (source fixture pending)</option>
+          <option value="b1.stock.09" disabled>S09 — UNSUPPORTED (source fixture pending)</option>
+          <option value="b1.stock.10" disabled>S10 — UNSUPPORTED (source fixture pending)</option>
+          <option value="b1.stock.11" disabled>S11 — UNSUPPORTED (source fixture pending)</option>
+          <option value="b1.stock.12" disabled>S12 — UNSUPPORTED (source fixture pending)</option>
+          <option value="b1.stock.13" disabled>S13 — UNSUPPORTED (source fixture pending)</option>
+          <option value="b1.stock.14" disabled>S14 — UNSUPPORTED (source fixture pending)</option>
+          <option value="b1.stock.15" disabled>S15 — UNSUPPORTED (source fixture pending)</option>
+          <option value="b1.stock.16" disabled>S16 — UNSUPPORTED (source fixture pending)</option>
+          <option value="b1.stock.17" disabled>S17 — UNSUPPORTED (source fixture pending)</option>
+          <option value="b1.stock.18" disabled>S18 — UNSUPPORTED (source fixture pending)</option>
+          <option value="b1.stock.19" disabled>S19 — UNSUPPORTED (source fixture pending)</option>
+          <option value="b1.stock.20" disabled>S20 — UNSUPPORTED (source fixture pending)</option>
+          <option value="b1.stock.21" disabled>S21 — UNSUPPORTED (source fixture pending)</option>
+          <option value="b1.stock.22" disabled>S22 — UNSUPPORTED (source fixture pending)</option>
+          <option value="b1.stock.23" disabled>S23 — UNSUPPORTED (source fixture pending)</option>
+          <option value="b1.stock.24" disabled>S24 — UNSUPPORTED (source fixture pending)</option>
+          <option value="b1.stock.25" disabled>S25 — UNSUPPORTED (source fixture pending)</option>
+        </optgroup>
+        <optgroup label="B1 Exceptional Rooms — source verification pending">
+          <option value="b1.room.r53" disabled>R53 — UNSUPPORTED (source fixture pending)</option>
+          <option value="b1.room.r54" disabled>R54 — UNSUPPORTED (source fixture pending)</option>
+        </optgroup>
+      </select>
+      <p id="battle-selection-status" role="status">TEST_ONLY · Owner-approved synthetic 3 vs 3 · No B1 source data</p>
+      <p>Selection alone never changes an active battle. Use Reset selected battle to
+         abandon the current encounter, after confirmation.</p>
+    </section>
 
     <section class="chat-panel" aria-label="Chat conversation">
       <ol id="transcript" class="transcript" role="log"
@@ -35,7 +98,7 @@
           aria-live="polite" aria-relevant="additions">
         <li class="message message--system">
           <span class="speaker">Prototype notice</span>
-          <p>Normal chat is a scripted simulation. Click Start 3 vs 3 combat
+          <p>Normal chat is a scripted simulation. Click Select Battle and Start selected battle
              to use the Python combat engine for real dice, damage and temporary
              encounter HP. Movement, spells, missiles and morale are not yet implemented.</p>
         </li>

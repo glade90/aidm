@@ -35,6 +35,7 @@ class CombatTurnIntent(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     kind: Literal["START", "ACTION", "VIEW_LOG", "RESET"]
+    fixture_id: str | None = None  # Authoritative server registry verifies eligibility.
     encounter_id: str | None = None
     actor_id: str | None = None
     decision_token: str | None = None
@@ -42,7 +43,7 @@ class CombatTurnIntent(BaseModel):
     client_action_id: str | None = None
     log_since_sequence: int | None = Field(default=None, ge=0)
 
-    @field_validator("encounter_id", "actor_id", "decision_token", "client_action_id")
+    @field_validator("fixture_id", "encounter_id", "actor_id", "decision_token", "client_action_id")
     @classmethod
     def safe_combat_identifier(cls, value: str | None) -> str | None:
         if value is not None and _IDENTIFIER.fullmatch(value) is None:
@@ -60,6 +61,8 @@ class CombatTurnIntent(BaseModel):
             raise ValueError("Combat ACTION requires current decision metadata")
         if self.kind in ("VIEW_LOG", "RESET") and self.encounter_id is None:
             raise ValueError("Combat VIEW_LOG or RESET requires encounter identifier")
+        if self.kind in ("ACTION", "VIEW_LOG") and self.fixture_id is not None:
+            raise ValueError("Fixture selection is allowed only for START or RESET")
         return self
 
 
@@ -139,6 +142,9 @@ class PlayerCombatView(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
     encounter_id: str
+    fixture_id: str | None = None  # Test/admin scenario code, never an unverified B1 roster.
+    fixture_label: str | None = None
+    fixture_status: Literal["TEST_ONLY", "READY"] | None = None
     intent_mode: Literal["OFFLINE_SCRIPTED", "LIVE_LLM", "INJECTED_POLICY"] = "OFFLINE_SCRIPTED"
     state_version: int = Field(ge=0)
     current_round: int = Field(ge=1)

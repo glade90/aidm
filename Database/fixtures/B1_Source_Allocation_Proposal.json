@@ -1,0 +1,68 @@
+{
+  "story": "AIDM-DES-001.7.12",
+  "status": "DAVOS_PROPOSAL_ONLY_PENDING_BON_ALEK_APPROVAL",
+  "source": "B1 TSR 9023 Brown Cover original stock 25 (printed p25); upper wandering 6 (p8), lower wandering 6 (p21), exceptional rooms 53/54 (pp22-23). Cross-checked against Golden Braid PLAN-020 OneNote audit, 22 November 2026.",
+  "note": "No encounter is READY by being listed; 16-20 of 25 optional stock entries are normally chosen by the Dungeon Master. The inventory covers SOURCE OPTIONS, not 39 compulsory fights.",
+  "children": {
+    "AIDM-DES-001.7.12.1": [
+      "S12",
+      "S15",
+      "S16",
+      "S20",
+      "S25"
+    ],
+    "AIDM-DES-001.7.12.2": [
+      "S01",
+      "S02",
+      "S03",
+      "S04",
+      "S05"
+    ],
+    "AIDM-DES-001.7.12.3": [
+      "S06",
+      "S07",
+      "S08",
+      "S09",
+      "S10"
+    ],
+    "AIDM-DES-001.7.12.4": [
+      "S11",
+      "S13",
+      "S14",
+      "S17",
+      "S18"
+    ],
+    "AIDM-DES-001.7.12.5": [
+      "S19",
+      "S21",
+      "S22",
+      "S23",
+      "S24"
+    ],
+    "AIDM-DES-001.7.12.6": [
+      "U01",
+      "U02",
+      "U03",
+      "U04",
+      "U05"
+    ],
+    "AIDM-DES-001.7.12.7": [
+      "U06",
+      "L01",
+      "L02",
+      "L03",
+      "L04"
+    ],
+    "AIDM-DES-001.7.12.8": [
+      "L05",
+      "L06",
+      "R53",
+      "R54"
+    ]
+  },
+  "approval_requirements": [
+    "BON verifies exact source edition, number/HP and individual candidate selection",
+    "ALEK confirms iteration/estimate and allocation across all children",
+    "Each source requires approved species and source-specific mechanics before READY"
+  ]
+}

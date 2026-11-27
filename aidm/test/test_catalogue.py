@@ -1,0 +1,590 @@
+"""DES-001.7.9: real schema v0.4/v0.3/v0.2 offline provider and handoff tests.
+
+Usage: python -m pytest aidm/test/test_catalogue.py -q
+No SQL Server, secrets, network, UI or provider driver dependency.
+"""
+from __future__ import annotations
+
+from datetime import date
+from decimal import Decimal
+from dataclasses import FrozenInstanceError, replace
+import json
+import pytest
+
+from aidm.catalogue import (
+    CatalogueError, CatalogueUnavailable, MonsterCatalogue,
+    MonsterTestScenarios, NotPlayable, SqlServerReader,
+    build_test_handoff, public_monster_asset, _MONSTER_COLS, _SCENARIO_COLS, _CASE_COLS, _select,
+)
+
+
+def monster_row(*, code="ORC", status="Approved", active=1, record="2026-11-21", **overrides):
+    row = {name: None for name in _MONSTER_COLS}
+    row.update({
+        "RecordDate": record, "RulesetCode": "MentzerBECMI", "MonsterCode": code,
+        "Active": active, "SourceStatus": status, "MonsterName": "Orc",
+        "SourceReference": "Mentzer 1983 DMRB p. x", "ArmorClass": 6,
+        "HitDiceText": "1", "AttackPattern": "1", "DamagePattern": "1d6",
+        "SaveAs": "F1", "Morale": 8, "MovementTurnFeet": Decimal("90"),
+        "MovementRoundFeet": Decimal("30"), "GeneralDescription": "Humanoid.",
+        "SpecialAttacksFeatures": "Daylight: -1 to Hit, not damage.",
+        "SpecialEncounterFeatures": "May stand off and negotiate; no fixed hostility.",
+        "D1Feet": Decimal("2.5"), "D2Feet": Decimal("1.5"),
+        "ZFeet": Decimal("5.0"), "SizeBasis": "illustrative",
+        "HouseRuleOverlayRefs": None,
+        "IllustrationPath": "assets/monsters/orc.png",
+        "MapIconPath": "assets/monsters/orc_icon.png",
+    })
+    row.update(overrides)
+    return row
+
+
+def scenario_row(*, ready=0, status="Specified", monster_hp=6,
+                 code="ORC-T001-A", **overrides):
+    row = {key: None for key in _SCENARIO_COLS}
+    row.update({
+        "ScenarioCode": code, "ScenarioName": "Orc patrol",
+        "RulesetCode": "MentzerBECMI", "PrimaryMonsterCode": "ORC",
+        "FixtureRevision": 1, "ScenarioStatus": status, "ReadyForExecution": ready,
+        "OriginReference": "Synthetic test, NOT a B1 HP source",
+        "MonsterCount": 1,
+        "PartyRosterJson": json.dumps([{"actor_id": "PC-T", "hp_start": 20}]),
+        "MonsterRosterJson": json.dumps([{
+            "actor_id": "ORC-A", "species": "ORC", "role": "ordinary",
+            "hp_start": monster_hp, "armor_class": 6, "weapon": "shortsword",
+        }]),
+        "SceneFactsJson": json.dumps({"daylight": True, "hostility": "not predetermined"}),
+    })
+    row.update(overrides)
+    return row
+
+
+def case_row(*, code="ORC-T001-A", status="Specified", number=1, **overrides):
+    row = {key: None for key in _CASE_COLS}
+    row.update({
+        "ScenarioCode": code, "TestCaseCode": "ORC-T01",
+        "SequenceNo": number, "TestName": "Daylight hit penalty",
+        "TestPhase": "COMBAT", "TestStatus": status, "TestRevision": 1,
+        "GivenText": "Given Orc in daylight", "ExpectedText": "-1 to Hit only",
+        "DiceFixtureJson": '{"attack_d20":12}',
+    })
+    row.update(overrides)
+    return row
+
+
+class FakeQuery:
+    def __init__(self, monsters=(), scenarios=(), cases=()):
+        self.monsters = list(monsters)
+        self.scenarios = list(scenarios)
+        self.cases = list(cases)
+        self.calls = []
+
+    def __call__(self, sql, parameters):
+        self.calls.append((sql, parameters))
+        if "[Rules].[Monster]" in sql:
+            rows = [r for r in self.monsters
+                    if r["RulesetCode"] == parameters[0] and r["MonsterCode"] == parameters[1]]
+            if "[SourceStatus] = N'Approved'" in sql:
+                rows = [r for r in rows if r["Active"] == 1 and r["SourceStatus"] == "Approved"]
+            elif "[SourceStatus] = N'SourceChecked'" in sql:
+                rows = [r for r in rows if r["Active"] == 0 and r["SourceStatus"] == "SourceChecked"]
+            if len(parameters) == 3:
+                rows = [r for r in rows if str(r["RecordDate"]) == parameters[2]]
+            return rows
+        if "[Test].[MonsterTestScenario]" in sql:
+            return [r for r in self.scenarios if r["ScenarioCode"] == parameters[0]]
+        if "[Test].[MonsterTestCase]" in sql:
+            return [r for r in self.cases if r["ScenarioCode"] == parameters[0]]
+        raise AssertionError("Unexpected SQL table")
+
+
+def test_catalogue_preserves_all_mapped_v04_fields_and_separates_guidance():
+    fake = FakeQuery(monsters=[monster_row()])
+    catalogue = MonsterCatalogue(fake)
+    monster = catalogue.resolve("MentzerBECMI", "ORC")
+    assert monster.identity == ("MentzerBECMI", "ORC", "2026-11-21")
+    assert monster.schema_version == "Rules.Monster.v0.4"
+    assert monster.reference_complete
+    assert monster.armor_class == 6
+    assert monster.hit_dice_text == "1" and monster.attack_pattern == "1"
+    assert monster.morale == 8
+    assert (monster.movement_turn_feet, monster.movement_round_feet) == (90, 30)
+    assert (monster.d1_feet, monster.d2_feet, monster.z_feet) == (
+        Decimal("2.5"), Decimal("1.5"), Decimal("5")
+    )
+    assert "Daylight" in monster.special_attacks_features
+    assert "negotiate" in monster.special_encounter_features
+    assert monster.special_encounter_features != monster.general_description
+    assert "[Rules].[Monster]" in fake.calls[0][0]
+    assert "[SpecialEncounterFeatures]" in fake.calls[0][0]
+    assert "[D1Feet]" in fake.calls[0][0]
+    assert fake.calls[0][1] == ("MentzerBECMI", "ORC")
+    with pytest.raises(FrozenInstanceError):
+        monster.armor_class = 5
+
+
+@pytest.mark.parametrize("change", [
+    {"ArmorClass": None}, {"HitDiceText": None}, {"AttackPattern": None},
+    {"DamagePattern": None}, {"SaveAs": None}, {"Morale": None},
+])
+def test_nullable_unknown_core_stats_are_not_imputed_as_playable(change):
+    row = monster_row(**change)
+    snap = MonsterCatalogue(FakeQuery(monsters=[row])).resolve("MentzerBECMI", "ORC")
+    assert not snap.reference_complete
+
+
+def test_unapproved_seed_is_hidden_by_default_and_test_only_opt_in_never_approves():
+    fake = FakeQuery(monsters=[monster_row(status="SourceChecked", active=0)])
+    c = MonsterCatalogue(fake)
+    with pytest.raises(CatalogueError):
+        c.resolve("MentzerBECMI", "ORC")
+    draft = c.resolve("MentzerBECMI", "ORC", source_checked_test_only=True)
+    assert not draft.active and draft.source_status == "SourceChecked"
+    assert public_monster_asset(draft, revealed=True) == {}
+    assert "[Active] = 0" in fake.calls[-1][0]
+
+
+@pytest.mark.parametrize("bad", [
+    "OTHER", "ORC;DROP TABLE Rules.Monster", "", "a"*81,
+])
+def test_unknown_or_unsafe_ruleset_monster_lookups_fail_before_database(bad):
+    q = FakeQuery(monsters=[monster_row()])
+    c = MonsterCatalogue(q)
+    with pytest.raises(CatalogueError):
+        c.resolve(bad, "ORC")
+    assert not q.calls
+
+
+def test_invalid_monster_code_date_and_duplicate_keys_fail_closed():
+    q = FakeQuery(monsters=[monster_row()])
+    c = MonsterCatalogue(q)
+    with pytest.raises(CatalogueError):
+        c.resolve("MentzerBECMI", "ORC;DELETE")
+    with pytest.raises(CatalogueError):
+        c.resolve("MentzerBECMI", "ORC", record_date="2026-11-40")
+    with pytest.raises(CatalogueError):
+        c.resolve_many([("MentzerBECMI", "ORC", None)] * 2)
+    assert not q.calls
+
+
+def test_explicit_version_guard_and_missing_version():
+    q = FakeQuery(monsters=[monster_row()])
+    c = MonsterCatalogue(q)
+    assert c.resolve("MentzerBECMI", "ORC", record_date="2026-11-21").record_date == "2026-11-21"
+    with pytest.raises(CatalogueError):
+        c.resolve("MentzerBECMI", "ORC", record_date="2026-11-22")
+    q.monsters.append(monster_row(record="2026-11-22"))
+    with pytest.raises(CatalogueError):
+        c.resolve("MentzerBECMI", "ORC")  # two approved active rows, illegal but fail-safe
+
+
+def test_missing_column_unexpected_approval_wrong_version_rejected():
+    row = monster_row()
+    del row["SpecialEncounterFeatures"]
+    with pytest.raises(CatalogueError):
+        MonsterCatalogue(FakeQuery(monsters=[row])).resolve("MentzerBECMI", "ORC")
+    wrong = monster_row(status="Draft", active=1)
+    with pytest.raises(CatalogueError):
+        # Force an untrusted provider to return a row violating SQL's WHERE.
+        MonsterCatalogue(lambda sql, args: [wrong]).resolve("MentzerBECMI", "ORC")
+    with pytest.raises(CatalogueError):
+        MonsterCatalogue(lambda sql, args: [monster_row(code="GOBLIN")]).resolve(
+            "MentzerBECMI", "ORC"
+        )
+
+
+@pytest.mark.parametrize("dimensions", [
+    {"D1Feet": Decimal("1"), "D2Feet": Decimal("2")},
+    {"ZFeet": Decimal("-1")}, {"D2Feet": "NaN"},
+])
+def test_invalid_dimensions_rejected_without_geometry_inference(dimensions):
+    q = FakeQuery(monsters=[monster_row(**dimensions)])
+    with pytest.raises(CatalogueError):
+        MonsterCatalogue(q).resolve("MentzerBECMI", "ORC")
+
+
+def test_readonly_dbapi_adapter_is_parameterised_bounded_closes_and_masks_errors():
+    class Cursor:
+        # pyodbc Cursor has no writable .timeout: __slots__ ensures a
+        # regression cannot pass by quietly adding one to a fake object.
+        __slots__ = ("calls", "closed")
+        description = (("MonsterCode",), ("RecordDate",))
+        def __init__(self): self.calls = []; self.closed = False
+        def execute(self, sql, *params): self.calls.append((sql, params))
+        def fetchmany(self, n):
+            assert n == 101
+            return [("ORC", date(2026, 11, 21))]
+        def close(self): self.closed = True
+    class Connection:
+        def __init__(self):
+            self.cur = Cursor()
+            self.closed = False
+            self.timeout = 0
+            self.timeout_seen_when_cursor_opened = None
+        def cursor(self):
+            self.timeout_seen_when_cursor_opened = self.timeout
+            return self.cur
+        def close(self): self.closed = True
+    obj = Connection()
+    reader = SqlServerReader(lambda: obj)
+    allowed = _select(
+        _MONSTER_COLS, "[Rules].[Monster]",
+        "[RulesetCode] = ? AND [MonsterCode] = ? AND [Active] = 1 "
+        "AND [SourceStatus] = N'Approved'",
+    )
+    rows = reader(allowed, ("MentzerBECMI", "ORC"))
+    assert rows == [{"MonsterCode": "ORC", "RecordDate": date(2026, 11, 21)}]
+    assert obj.cur.calls[0][1] == ("MentzerBECMI", "ORC")
+    assert obj.timeout == 10
+    assert obj.timeout_seen_when_cursor_opened == 10
+    assert obj.closed and obj.cur.closed
+    with pytest.raises(CatalogueError):
+        reader("DELETE FROM [Rules].[Monster]", ())
+    with pytest.raises(CatalogueUnavailable) as error:
+        SqlServerReader(lambda: (_ for _ in ()).throw(RuntimeError("password=secret")))(
+            allowed, ("MentzerBECMI", "ORC")
+        )
+    assert "secret" not in str(error.value)
+
+
+def test_normalized_scenario_and_cases_remain_specification_not_results():
+    fake = FakeQuery(
+        scenarios=[scenario_row()],
+        cases=[case_row(), case_row(number=2, TestCaseCode="ORC-T02", TestStatus="Deferred")],
+    )
+    repository = MonsterTestScenarios(fake)
+    with pytest.raises(NotPlayable):
+        repository.resolve("ORC-T001-A")
+    scenario = repository.resolve("ORC-T001-A", include_unready_test_only=True)
+    assert scenario.code == "ORC-T001-A"
+    assert scenario.monster_count == 1
+    assert scenario.status == "Specified" and not scenario.ready
+    assert [c.case_code for c in scenario.cases] == ["ORC-T01", "ORC-T02"]
+    assert scenario.cases[0].phase == "COMBAT"
+    assert not scenario.cases[0].executable
+    assert scenario.cases[0].dice_json == '{"attack_d20":12}'
+    # The first (unready) resolution reads only the parent and fails closed.
+    # Explicit inspection reads the parent again, then normalized child cases.
+    # Assert the actual query sequence, not the incorrect assumption that the
+    # second query is already the child query.
+    assert sum("[Test].[MonsterTestScenario]" in sql for sql, _ in fake.calls) == 2
+    assert sum("[Test].[MonsterTestCase]" in sql for sql, _ in fake.calls) == 1
+    assert all("TestCasesJson" not in sql for sql, _ in fake.calls)
+    with pytest.raises(NotPlayable):
+        build_test_handoff(scenario, MonsterCatalogue(FakeQuery(monsters=[monster_row()])),
+                           mechanics_verified_ref="verified.rules.1")
+
+
+@pytest.mark.parametrize("change", [
+    {"ScenarioStatus": "Specified", "ReadyForExecution": 1},
+    {"PartyRosterJson": "{"}, {"MonsterRosterJson": "{}"},
+    {"SceneFactsJson": "[]"},
+])
+def test_invalid_test_scenario_shapes_fail_closed(change):
+    q = FakeQuery(scenarios=[scenario_row(**change)], cases=[case_row()])
+    with pytest.raises(CatalogueError):
+        MonsterTestScenarios(q).resolve("ORC-T001-A", include_unready_test_only=True)
+
+
+def test_duplicate_case_sequence_parent_or_invalid_case_phase_blocks_resolution():
+    base = scenario_row()
+    variants = [
+        [case_row(), case_row(TestCaseCode="ORC-T02")],  # same SequenceNo
+        [case_row(), case_row(number=2)],  # duplicate CaseCode
+        [case_row(ScenarioCode="WRONG")],  # wrong foreign key
+        [case_row(TestPhase="UNSUPPORTED")],
+    ]
+    for children in variants:
+        q = FakeQuery(scenarios=[base], cases=children)
+        # Wrong-parent row does not survive ordinary FakeQuery filter;
+        # it must still fail because the scenario has no valid child rows.
+        with pytest.raises(CatalogueError):
+            MonsterTestScenarios(q).resolve("ORC-T001-A", include_unready_test_only=True)
+
+
+def test_readiness_requires_all_child_case_statuses_ready():
+    q = FakeQuery(scenarios=[scenario_row(status="Ready", ready=1)],
+                  cases=[case_row(status="Specified")])
+    with pytest.raises(NotPlayable):
+        MonsterTestScenarios(q).resolve("ORC-T001-A")
+    q.cases = [case_row(status="Ready")]
+    assert MonsterTestScenarios(q).resolve("ORC-T001-A").ready
+
+
+def test_roster_requires_real_hp_and_separate_mechanics_approval():
+    m = MonsterCatalogue(FakeQuery(monsters=[monster_row()]))
+    repo = MonsterTestScenarios(FakeQuery(
+        scenarios=[scenario_row(status="Ready", ready=1, monster_hp=None)],
+        cases=[case_row(status="Ready")],
+    ))
+    scenario = repo.resolve("ORC-T001-A")
+    with pytest.raises(NotPlayable):
+        build_test_handoff(scenario, m, mechanics_verified_ref="verified.rules.1")
+    ready = MonsterTestScenarios(FakeQuery(
+        scenarios=[scenario_row(status="Ready", ready=1)],
+        cases=[case_row(status="Ready")],
+    )).resolve("ORC-T001-A")
+    with pytest.raises(NotPlayable):
+        build_test_handoff(ready, m)
+    with pytest.raises(NotPlayable):
+        build_test_handoff(ready, m, mechanics_verified_ref="arbitrary bad\nvalue")
+
+
+def test_two_rosters_distinct_hp_same_version_and_no_combat_or_db_dependency():
+    q = FakeQuery(monsters=[monster_row()])
+    catalogue = MonsterCatalogue(q)
+    a = MonsterTestScenarios(FakeQuery(
+        scenarios=[scenario_row(ready=1, status="Ready", monster_hp=6, code="ORC-T001-A")],
+        cases=[case_row(status="Ready", code="ORC-T001-A")],
+    )).resolve("ORC-T001-A")
+    b = MonsterTestScenarios(FakeQuery(
+        scenarios=[scenario_row(ready=1, status="Ready", monster_hp=4, code="ORC-T001-B")],
+        cases=[case_row(status="Ready", code="ORC-T001-B")],
+    )).resolve("ORC-T001-B")
+    x = build_test_handoff(a, catalogue, mechanics_verified_ref="owner.rules.checked")
+    y = build_test_handoff(b, catalogue, mechanics_verified_ref="owner.rules.checked")
+    assert x.actors[0].starting_hp == 6 and y.actors[0].starting_hp == 4
+    assert x.actors[0].source_version == y.actors[0].source_version
+    assert x.sources[0].identity == y.sources[0].identity
+    assert "Daylight" in x.sources[0].special_attacks_features
+    assert "negotiate" not in repr(x.sources[0])  # Encounter-only guidance never reaches Combat.
+    assert x.origin_reference.startswith("Synthetic test")
+    assert not hasattr(x, "combat_engine")
+    with pytest.raises(FrozenInstanceError):
+        x.actors[0].starting_hp = 12
+    assert all("[Rules].[Monster]" in sql for sql, _ in q.calls)
+
+
+def test_public_asset_projection_hide_secrets_until_approved_and_revealed():
+    c = MonsterCatalogue(FakeQuery(monsters=[monster_row()]))
+    monster = c.resolve("MentzerBECMI", "ORC")
+    assert public_monster_asset(monster, revealed=False) == {}
+    public = public_monster_asset(monster, revealed=True)
+    assert public == {
+        "name": "Orc", "illustration_path": "assets/monsters/orc.png",
+        "map_icon_path": "assets/monsters/orc_icon.png",
+    }
+    assert "Daylight" not in repr(public)
+    assert "SourceReference" not in repr(public)
+
+
+
+def test_zero_movement_is_valid_sql_metadata_and_not_imputed():
+    q = FakeQuery(monsters=[monster_row(MovementTurnFeet=Decimal("0"),
+                                      MovementRoundFeet=Decimal("0"))])
+    snap = MonsterCatalogue(q).resolve("MentzerBECMI", "ORC")
+    assert snap.movement_turn_feet == snap.movement_round_feet == 0
+
+
+def test_hidden_asset_paths_cannot_escape_declared_static_roots():
+    q = FakeQuery(monsters=[monster_row(IllustrationPath="../../secret.txt",
+                                       MapIconPath="C:/Users/private/file.png")])
+    snap = MonsterCatalogue(q).resolve("MentzerBECMI", "ORC")
+    assert public_monster_asset(snap, revealed=True) == {
+        "name": "Orc", "illustration_path": "", "map_icon_path": "",
+    }
+
+
+@pytest.mark.parametrize("code,ac,hd,attacks,damage,save_as,morale,movement,dimensions", [
+    ("ORC", 6, "1", "1 attack with equipped weapon", "By equipped weapon",
+     "Fighter 1", 8, (120, 40), (5.0, 5.0, 6.0)),
+    ("GIANT_CENTIPEDE", 9, "1/2", "1 bite",
+     "0 HP from bite; save versus Poison on hit",
+     "Normal Man", 7, (60, 20), (1.0, 0.3, 0.2)),
+    ("CARRION_CRAWLER", 7, "3+1*", "8 separate tentacle attacks per round",
+     "0 HP per tentacle; save versus Paralysis on hit",
+     "Fighter 2", 9, (120, 40), (9.0, 3.0, 3.0)),
+    ("GIANT_CRAB_SPIDER", 7, "2*", "1 bite per round",
+     "1d8 HP from bite, plus separate Poison save",
+     "Fighter 1", 7, (120, 40), (5.0, 4.0, 2.0)),
+])
+def test_four_source_checked_pequod_v04_schema_contracts(
+        code, ac, hd, attacks, damage, save_as, morale, movement, dimensions):
+    """Reviewed bonnie Monster_Mentzer_Basic_Four_Species_Insert.sql VALUES.
+
+    Offline fixtures validate exact SOURCE fields but do not claim actual
+    PEQUOD deployment, source approval, special-rule execution or BON UAT.
+    """
+    source = monster_row(
+        code=code, status="SourceChecked", active=0,
+        MonsterName=code.replace("_", " ").title(),
+        ArmorClass=ac, HitDiceText=hd, AttackPattern=attacks, DamagePattern=damage,
+        SaveAs=save_as, Morale=morale,
+        MovementTurnFeet=Decimal(str(movement[0])),
+        MovementRoundFeet=Decimal(str(movement[1])),
+        D1Feet=Decimal(str(dimensions[0])),
+        D2Feet=Decimal(str(dimensions[1])),
+        ZFeet=Decimal(str(dimensions[2])),
+        SpecialAttacksFeatures="Source special feature. Verify before any combat.",
+        SpecialEncounterFeatures="Species behavioural context; not a combat modifier.",
+        SourceReference=f"1983 Mentzer Basic, {code}, source reviewed.",
+    )
+    db = FakeQuery(monsters=[source])
+    catalogue = MonsterCatalogue(db)
+    with pytest.raises(CatalogueError):
+        catalogue.resolve("MentzerBECMI", code)
+    snap = catalogue.resolve("MentzerBECMI", code, source_checked_test_only=True)
+    assert snap.monster_code == code and snap.armor_class == ac
+    assert snap.hit_dice_text == hd and snap.attack_pattern == attacks
+    assert snap.damage_pattern == damage and snap.save_as == save_as
+    assert snap.morale == morale
+    assert (snap.movement_turn_feet, snap.movement_round_feet) == movement
+    assert (float(snap.d1_feet), float(snap.d2_feet), float(snap.z_feet)) == dimensions
+    assert snap.active is False and snap.source_status == "SourceChecked"
+    assert "Source special feature" in snap.special_attacks_features
+    assert "Species behavioural" in snap.special_encounter_features
+    assert snap.special_attacks_features != snap.special_encounter_features
+    assert public_monster_asset(snap, revealed=True) == {}
+
+
+def test_handoff_honours_explicit_actor_record_date_not_other_active_version():
+    q = FakeQuery(monsters=[monster_row(record="2026-11-21")],
+                  scenarios=[scenario_row(status="Ready", ready=1,
+                      MonsterRosterJson=json.dumps([
+                          {"actor_id": "ORC-A", "species": "ORC", "role": "ordinary",
+                           "hp_start": 6, "weapon": "shortsword",
+                           "species_record_date": "2026-11-22"}]))],
+                  cases=[case_row(status="Ready")])
+    scenario = MonsterTestScenarios(q).resolve("ORC-T001-A")
+    with pytest.raises(CatalogueError):
+        build_test_handoff(scenario, MonsterCatalogue(q),
+                           mechanics_verified_ref="source.melee1")
+    assert "[RecordDate] = ?" in q.calls[-1][0]
+    assert q.calls[-1][1] == ("MentzerBECMI", "ORC", "2026-11-22")
+
+
+def test_handoff_rejects_partial_version_pins_for_same_species():
+    roster = [
+        {"actor_id": "ORC-A", "species": "ORC", "role": "ordinary",
+         "hp_start": 6, "species_record_date": "2026-11-21"},
+        {"actor_id": "ORC-B", "species": "ORC", "role": "ordinary",
+         "hp_start": 4, "species_record_date": None},
+    ]
+    q = FakeQuery(monsters=[monster_row()],
+                  scenarios=[scenario_row(status="Ready", ready=1,
+                      MonsterCount=2, MonsterRosterJson=json.dumps(roster))],
+                  cases=[case_row(status="Ready")])
+    scenario = MonsterTestScenarios(q).resolve("ORC-T001-A")
+    with pytest.raises(NotPlayable):
+        build_test_handoff(scenario, MonsterCatalogue(q),
+                           mechanics_verified_ref="source.melee1")
+    assert not any("[Rules].[Monster]" in sql for sql, _ in q.calls)
+
+
+def test_sql_read_contract_blocks_bon_select_prefix_exploit_before_driver_open():
+    """DEF-01: deliberately malicious SELECT-prefixed batches must never execute."""
+    allowed = _select(
+        _MONSTER_COLS, "[Rules].[Monster]",
+        "[RulesetCode] = ? AND [MonsterCode] = ? AND [Active] = 1 "
+        "AND [SourceStatus] = N'Approved'",
+    )
+    opened = []
+    def factory():
+        opened.append("CONNECTED")
+        raise AssertionError("Rejected input must not open ODBC")
+    reader = SqlServerReader(factory)
+    valid_args = ("MentzerBECMI", "ORC")
+    for sql in (
+        "SELECT 1",
+        allowed + "; DELETE FROM [Rules].[Monster]",
+        allowed + "\nDELETE FROM [Rules].[Monster]",
+        allowed.replace(" FROM [Rules].[Monster]", " INTO [dbo].[Probe] FROM [Rules].[Monster]"),
+        allowed.replace("[Rules].[Monster]", "[dbo].[Unreviewed]"),
+        allowed + " -- extra",
+        allowed.replace("[SourceStatus] = N'Approved'", "[SourceStatus] <> N'Approved'"),
+        allowed.replace("[RecordDate]", "[UnapprovedDate]"),
+        "SELECT [MonsterCode] FROM [Rules].[Monster]",
+        " SELECT " + allowed,
+    ):
+        with pytest.raises(CatalogueError):
+            reader(sql, valid_args)
+    assert not opened
+
+
+@pytest.mark.parametrize("params", [
+    (), ("MentzerBECMI",), ("MentzerBECMI", "ORC", "2026-11-21"),
+    ["MentzerBECMI", "ORC"],
+    ("MentzerBECMI", 7), (True, "ORC"), ("MentzerBECMI", "ORC; DELETE"),
+    ("MentzerBECMI", "ORC' OR '1'='1"), ("MentzerBECMI", ""),
+])
+def test_sql_read_contract_rejects_wrong_parameters_before_driver_open(params):
+    allowed = _select(
+        _MONSTER_COLS, "[Rules].[Monster]",
+        "[RulesetCode] = ? AND [MonsterCode] = ? AND [Active] = 1 "
+        "AND [SourceStatus] = N'Approved'",
+    )
+    opened = []
+    def forbidden():
+        opened.append(1)
+        raise RuntimeError("must not open")
+    with pytest.raises(CatalogueError):
+        SqlServerReader(forbidden)(allowed, params)
+    assert not opened
+
+
+def test_sql_reader_accepts_exact_six_reviewed_shapes_with_bound_parameters():
+    """Two monster approval gates x pinned/unpinned, plus scenario and cases."""
+    from aidm.catalogue import _REVIEWED_SQL_READS
+    assert len(_REVIEWED_SQL_READS) == 6
+    calls = []
+    class Cursor:
+        description = (("ValidatedQuery",),)
+        def __init__(self):
+            self.closed = False
+        def execute(self, sql, *parameters):
+            calls.append((sql, parameters))
+        def fetchmany(self, n):
+            assert n == 101
+            return [("ok",)]
+        def close(self):
+            self.closed = True
+    class Connection:
+        timeout = None
+        def __init__(self):
+            self.cursor_obj = Cursor()
+            self.closed = False
+        def cursor(self):
+            return self.cursor_obj
+        def close(self):
+            self.closed = True
+    opened = []
+    def factory():
+        conn = Connection()
+        opened.append(conn)
+        return conn
+    reader = SqlServerReader(factory)
+    for sql, names in _REVIEWED_SQL_READS.items():
+        params = tuple(
+            "2026-11-21" if name == "RecordDate"
+            else "ORC-T001-A" if name == "ScenarioCode"
+            else "MentzerBECMI" if name == "RulesetCode"
+            else "ORC"
+            for name in names
+        )
+        assert reader(sql, params) == [{"ValidatedQuery": "ok"}]
+    assert len(opened) == len(calls) == 6
+    assert all(conn.closed and conn.cursor_obj.closed and conn.timeout == 10
+               for conn in opened)
+
+
+def test_sql_reader_rejects_wrong_date_and_parameter_count_for_all_tables():
+    from aidm.catalogue import _REVIEWED_SQL_READS
+    opened = []
+    def factory():
+        opened.append(True)
+        raise AssertionError("must not connect")
+    reader = SqlServerReader(factory)
+    for sql, contract in _REVIEWED_SQL_READS.items():
+        with pytest.raises(CatalogueError):
+            reader(sql, ())
+        with pytest.raises(CatalogueError):
+            reader(sql, tuple("X" for _ in range(len(contract) + 1)))
+        if "RecordDate" in contract:
+            for invalid_date in ("2026-99-99", "2026-11-21' --", None, 20261121):
+                params = tuple(invalid_date if col == "RecordDate" else
+                               "MentzerBECMI" if col == "RulesetCode" else "ORC"
+                               for col in contract)
+                with pytest.raises(CatalogueError):
+                    reader(sql, params)
+    assert not opened
+

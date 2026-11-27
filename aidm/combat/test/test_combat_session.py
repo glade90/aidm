@@ -971,3 +971,115 @@ def test_injected_live_like_intent_policy_used_but_engine_owns_outcome():
         assert len(fake.narrations) >= 1
         assert sources[0].cursor == 4  # 2 side initiative + Evro attack/damage
         assert service._sessions["s1"].engine.snapshot()["hp"]["orc-01"] == 0
+
+
+# AIDM-DES-001.7.1 — test/admin selector first increment.
+# Only the owner-approved synthetic 3v3 is eligible; none of the B1 source-entry
+# placeholders can construct an encounter until their data and rules gates pass.
+APPROVED_SELECTOR_ID = "owner-canonical-3v3-fixture-v1"
+
+
+def test_battle_selector_start_known_synthetic_and_reset_to_new_encounter():
+    app, service, sources = make_app()
+    with TestClient(app) as client:
+        started = client.post("/api/turn", json={
+            "session_id": "fixture-s1",
+            "correlation_id": "fixture-start",
+            "combat": {
+                "kind": "START", "fixture_id": APPROVED_SELECTOR_ID,
+                "log_since_sequence": 0,
+            },
+        })
+        assert started.status_code == 200, started.text
+        body = started.json()
+        assert body["status"] == "NEEDS_PLAYER_INPUT"
+        first = body["combat"]
+        assert first["fixture_id"] == APPROVED_SELECTOR_ID
+        assert first["fixture_status"] == "TEST_ONLY"
+        assert "synthetic" in first["fixture_label"].lower()
+        assert first["next_decision"]["actor_id"] == "alho"
+        initial_engine = service._sessions["fixture-s1"].engine
+        assert initial_engine.snapshot()["hp"]["orc-01"] == 6
+        assert len(sources) == 1
+
+        repeated = client.post("/api/turn", json={
+            "session_id": "fixture-s1",
+            "combat": {"kind": "START", "fixture_id": APPROVED_SELECTOR_ID},
+        }).json()["combat"]
+        assert repeated["encounter_id"] == first["encounter_id"]
+        assert len(sources) == 1  # START does not silently replace active combat.
+
+        reset_result = client.post("/api/turn", json={
+            "session_id": "fixture-s1",
+            "combat": {
+                "kind": "RESET", "fixture_id": APPROVED_SELECTOR_ID,
+                "encounter_id": first["encounter_id"], "log_since_sequence": 0,
+            },
+        })
+        assert reset_result.status_code == 200
+        new_view = reset_result.json()["combat"]
+        assert new_view["fixture_id"] == APPROVED_SELECTOR_ID
+        assert new_view["encounter_id"] != first["encounter_id"]
+        assert new_view["state_version"] == 0
+        assert new_view["current_round"] == 1
+        assert len(sources) == 2
+        assert service._sessions["fixture-s1"].engine is not initial_engine
+        assert service._sessions["fixture-s1"].engine.snapshot()["hp"]["orc-01"] == 6
+
+
+@pytest.mark.parametrize("fixture_id", [
+    "b1.upper.wandering.01", "b1.lower.wandering.06",
+    "b1.stock.01", "b1.stock.25", "b1.room.r53", "b1.room.r54",
+    "ORC-T001-A", "nonexistent",
+])
+def test_battle_selector_unsupported_or_missing_source_never_initialises_fight(fixture_id):
+    app, service, sources = make_app()
+    with TestClient(app) as client:
+        denial = client.post("/api/turn", json={
+            "session_id": "fixture-denied",
+            "combat": {"kind": "START", "fixture_id": fixture_id},
+        })
+        assert denial.status_code == 200
+        assert denial.json()["status"] == "BLOCKED"
+        assert "fixture-denied" not in service._sessions
+        assert not sources
+
+
+def test_battle_selector_unapproved_reset_never_mutates_existing_fight():
+    app, service, sources = make_app()
+    with TestClient(app) as client:
+        prior = start(client)["combat"]
+        original_engine = service._sessions["s1"].engine
+        snapshot = original_engine.snapshot()
+        cursor = sources[0].cursor
+        denial = client.post("/api/turn", json={
+            "session_id": "s1",
+            "combat": {
+                "kind": "RESET", "encounter_id": prior["encounter_id"],
+                "fixture_id": "b1.upper.wandering.01",
+            },
+        })
+        assert denial.status_code == 200
+        assert denial.json()["status"] == "BLOCKED"
+        assert service._sessions["s1"].engine is original_engine
+        assert original_engine.snapshot() == snapshot
+        assert sources[0].cursor == cursor
+        assert len(sources) == 1
+        continued = start(client)["combat"]
+        assert continued["encounter_id"] == prior["encounter_id"]
+
+
+@pytest.mark.parametrize("kind", ["ACTION", "VIEW_LOG"])
+def test_battle_selector_rejects_fixture_claim_on_nonselection_turn(kind):
+    app, service, sources = make_app()
+    with TestClient(app) as client:
+        attempted = client.post("/api/turn", json={
+            "session_id": "fixture-invalid",
+            "message": "HOLD" if kind == "ACTION" else None,
+            "combat": {"kind": kind, "fixture_id": APPROVED_SELECTOR_ID,
+                       "encounter_id": "enc-existing"},
+        })
+        assert attempted.status_code == 422
+        assert attempted.json()["status"] == "NEEDS_PLAYER_INPUT"
+        assert not sources
+        assert not service._sessions

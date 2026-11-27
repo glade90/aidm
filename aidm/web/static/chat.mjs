@@ -15,6 +15,9 @@ const COMBAT_CUE_SYMBOLS = Object.freeze({
 export function mountChat({
   documentRef = globalThis.document,
   client = new ChatApiClient(),
+  confirmReset = (message) => (
+    typeof globalThis.confirm === "function" ? globalThis.confirm(message) : true
+  ),
 } = {}) {
   const form = documentRef.getElementById("chat-form");
   const input = documentRef.getElementById("player-message");
@@ -28,6 +31,10 @@ export function mountChat({
   const connection = status.parentElement;
   const startButton = documentRef.getElementById("combat-start");
   const resetButton = documentRef.getElementById("combat-reset");
+  const selectButton = documentRef.getElementById("battle-select");
+  const selectorPanel = documentRef.getElementById("battle-selector");
+  const fixtureSelect = documentRef.getElementById("battle-fixture");
+  const fixtureStatus = documentRef.getElementById("battle-selection-status");
   const logButton = documentRef.getElementById("combat-log");
   const combatStatus = documentRef.getElementById("combat-status");
   const combatBoard = documentRef.getElementById("combat-board");
@@ -86,6 +93,13 @@ export function mountChat({
       }).join(" · ");
     }
     if (logButton) logButton.disabled = pending;
+    if (fixtureStatus && typeof view.fixture_id === "string") {
+      fixtureStatus.textContent = [
+        view.fixture_status ?? "UNVERIFIED",
+        view.fixture_label ?? "Combat test fixture",
+        view.fixture_id,
+      ].join(" · ");
+    }
     if (combatStatus) {
       const label = view.terminal ? "Encounter ended"
         : view.awaiting_player ? "Waiting for your decision" : "Rules check required";
@@ -138,6 +152,8 @@ export function mountChat({
     button.disabled = value;
     input.disabled = value;
     if (startButton) startButton.disabled = value;
+    if (selectButton) selectButton.disabled = value;
+    if (fixtureSelect) fixtureSelect.disabled = value;
     if (resetButton) resetButton.disabled = value || !(client.combatState);
     if (logButton) logButton.disabled = value || !(client.combatState);
   }
@@ -217,17 +233,51 @@ export function mountChat({
       input.focus();
     }
   }
+  const approvedTestFixture = "owner-canonical-3v3-fixture-v1";
+  function selectedFixture() {
+    // The test/admin interface is a chooser, NEVER a rules or eligibility
+    // authority. Backend independently rejects unsupported fixture IDs.
+    return fixtureSelect ? fixtureSelect.value : undefined;
+  }
+  if (selectButton && selectorPanel) {
+    selectButton.addEventListener("click", () => {
+      if (pending) return;
+      selectorPanel.hidden = !selectorPanel.hidden;
+      selectButton.setAttribute?.("aria-expanded", String(!selectorPanel.hidden));
+      if (!selectorPanel.hidden) fixtureSelect?.focus();
+    });
+  }
   if (startButton) {
-    startButton.addEventListener("click", () =>
-      runCombatControl(() => client.startCombat(), "Starting combat…"));
+    startButton.addEventListener("click", () => {
+      if (selectedFixture() !== undefined
+          && selectedFixture() !== approvedTestFixture) {
+        setStatus("Selected B1 fixture is not verified or playable", "error");
+        return;
+      }
+      return runCombatControl(
+        () => client.startCombat(selectedFixture()), "Starting combat…"
+      );
+    });
   }
   if (logButton) {
     logButton.addEventListener("click", () =>
       runCombatControl(() => client.viewCombatLog(), "Retrieving combat journal…"));
   }
   if (resetButton) {
-    resetButton.addEventListener("click", () =>
-      runCombatControl(() => client.resetCombat(), "Resetting combat…"));
+    resetButton.addEventListener("click", () => {
+      if (!client.combatState || pending) return;
+      if (selectedFixture() !== undefined
+          && selectedFixture() !== approvedTestFixture) {
+        setStatus("Selected B1 fixture is not verified or playable", "error");
+        return;
+      }
+      if (!confirmReset("Abandon the active combat and start a fresh selected test battle?")) {
+        return;
+      }
+      return runCombatControl(
+        () => client.resetCombat(selectedFixture()), "Resetting combat…"
+      );
+    });
   }
 
   form.addEventListener("submit", submit);
